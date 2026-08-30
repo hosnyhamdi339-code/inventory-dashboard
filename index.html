@@ -51,7 +51,7 @@
   .btn.secondary:hover { background: var(--bg-subtle); }
   .btn.settings-btn { background: #0f172a; color: #fff; width: auto; padding: 10px 20px; font-size: 14px; }
   .btn.lock-btn { background: #475569; color: #fff; }
-  #fileInputInvInitial, #fileInputInvFinal, #fileInputAudit, #fileInputMoves { display: none; }
+  #fileInputInvInitial, #fileInputInvFinal, #fileInputAudit, #fileInputValuation, #fileInputMoves { display: none; }
 
   .sync-indicator {
     display: inline-flex; align-items: center; gap: 6px; font-size: 13px;
@@ -443,12 +443,14 @@
         <button class="btn secondary" id="uploadInvInitialBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت رصيد أول المدة</button>
         <button class="btn secondary" id="uploadInvFinalBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت رصيد آخر المدة</button>
         <button class="btn secondary" id="uploadAuditBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت آخر جرد مخزون</button>
+        <button class="btn secondary" id="uploadValuationBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت آخر تقييم للمخزون</button>
         <button class="btn secondary" id="uploadMovesBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت الحركة</button>
         <button class="btn secondary" id="exportBtn">تصدير قائمة العروض والخصومات (Excel)</button>
       </div>
       <input type="file" id="fileInputInvInitial" accept=".xlsx, .xls, .csv">
       <input type="file" id="fileInputInvFinal" accept=".xlsx, .xls, .csv">
       <input type="file" id="fileInputAudit" accept=".xlsx, .xls, .csv">
+      <input type="file" id="fileInputValuation" accept=".xlsx, .xls, .csv">
       <input type="file" id="fileInputMoves" accept=".xlsx, .xls, .csv" multiple>
     </div>
 
@@ -752,6 +754,7 @@
         if (pendingUploadType === 'inv_initial') document.getElementById("fileInputInvInitial").click();
         if (pendingUploadType === 'inv_final') document.getElementById("fileInputInvFinal").click();
         if (pendingUploadType === 'audit') document.getElementById("fileInputAudit").click();
+        if (pendingUploadType === 'valuation') document.getElementById("fileInputValuation").click();
         if (pendingUploadType === 'moves') document.getElementById("fileInputMoves").click();
       }
     } else alert("كلمة السر غير صحيحة!");
@@ -761,6 +764,7 @@
   document.getElementById("uploadInvInitialBtn").addEventListener("click", () => checkAdminAndTrigger('inv_initial'));
   document.getElementById("uploadInvFinalBtn").addEventListener("click", () => checkAdminAndTrigger('inv_final'));
   document.getElementById("uploadAuditBtn").addEventListener("click", () => checkAdminAndTrigger('audit'));
+  document.getElementById("uploadValuationBtn").addEventListener("click", () => checkAdminAndTrigger('valuation'));
   document.getElementById("uploadMovesBtn").addEventListener("click", () => checkAdminAndTrigger('moves'));
 
   // Handler: Upload Moves
@@ -802,7 +806,7 @@
     else { alert("تم رفع شيت الحركة بنجاح!"); fetchCloudData(); }
   });
 
-  // Helper for Inventory Uploads (Initial, Final, Audit)
+  // Helper for Inventory Uploads (Initial, Final, Audit, Valuation)
   function handleInventoryUpload(file, fieldName, successMsg) {
     if(!file) return;
     const reader = new FileReader();
@@ -816,14 +820,18 @@
           barcode: String(r["Barcode"] || r["الباركود"] || ""),
           name: cleanText(r["Display Name"] || r["Name"] || r["الاسم"] || ""),
           cat: cleanText(r["Product Category"] || r["الفئة"] || "غير محدد"),
-          cost: Number(r["Cost"] || r["التكلفة"] || 0),
-          price: Number(r["Price"] || r["السعر"] || 0)
+          cost: Number(r["Cost"] || r["التكلفة"] || r["Unit Cost"] || 0),
+          price: Number(r["Price"] || r["السعر"] || r["Sales Price"] || 0)
         };
         if (fieldName === 'qtyInitial') obj.qtyInitial = Number(r["Opening Stock"] || r["رصيد أول المدة"] || r["رصيد اول المدة"] || r["Quantity"] || 0);
         if (fieldName === 'qtyFinal') obj.qtyFinal = Number(r["Closing Stock"] || r["رصيد آخر المدة"] || r["رصيد اخر المدة"] || r["Quantity"] || 0);
         if (fieldName === 'audit') {
           obj.auditQty = Number(r["Physical Audit"] || r["الجرد الفعلي"] || r["Quantity"] || 0);
           obj.auditDate = String(r["Audit Date"] || r["تاريخ الجرد"] || new Date().toISOString().split('T')[0]);
+        }
+        if (fieldName === 'valuation') {
+          if (r["Cost"] || r["التكلفة"] || r["Unit Cost"]) obj.cost = Number(r["Cost"] || r["التكلفة"] || r["Unit Cost"]);
+          if (r["Total Value"] || r["قيمة المخزون"]) obj.stockValue = Number(r["Total Value"] || r["قيمة المخزون"]);
         }
         return obj;
       });
@@ -843,6 +851,9 @@
   });
   document.getElementById("fileInputAudit").addEventListener("change", e => {
     handleInventoryUpload(e.target.files[0], 'audit', "تم رفع آخر جرد مخزون بنجاح!");
+  });
+  document.getElementById("fileInputValuation").addEventListener("change", e => {
+    handleInventoryUpload(e.target.files[0], 'valuation', "تم رفع آخر تقييم للمخزون بنجاح!");
   });
 
   function renderCharts(items) {
