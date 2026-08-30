@@ -47,6 +47,7 @@
     display: inline-flex; align-items: center; justify-content: center; gap: 6px; transition: 0.2s; width: 100%;
   }
   .btn:hover { opacity: 0.9; }
+  .btn:disabled { background: #94a3b8; cursor: not-allowed; }
   .btn.secondary { background: var(--bg-surface); color: var(--text-main); border: 1px solid var(--border); }
   .btn.secondary:hover { background: var(--bg-subtle); }
   .btn.settings-btn { background: #0f172a; color: #fff; width: auto; padding: 10px 20px; font-size: 14px; }
@@ -90,10 +91,8 @@
   .chart-card h3 { margin: 0 0 16px; font-size: 15px; font-weight: 700; color: var(--text-main); }
   .chart-container { position: relative; flex: 1; min-height: 220px; }
 
-  /* Section Title */
   .section-title { font-size: 16px; font-weight: 700; margin: 24px 0 12px; color: var(--text-main); display: flex; align-items: center; gap: 8px; }
 
-  /* Controls Panel */
   .panel {
     background: var(--bg-surface); border: 1px solid var(--border);
     padding: 20px; border-radius: 12px; box-shadow: var(--shadow); margin-bottom: 24px;
@@ -147,16 +146,17 @@
   .hidden { display: none !important; }
 
   .rule-edit-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 10px;
-    background: var(--bg-subtle);
-    padding: 10px;
-    border-radius: 8px;
+    display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+    background: var(--bg-subtle); padding: 10px; border-radius: 8px;
   }
   .rule-edit-row label { font-weight: 600; min-width: 55px; }
   .rule-edit-row input { width: 100px; }
+
+  /* Progress Banner */
+  #uploadProgressBanner {
+    display: none; background: #eff6ff; border: 1px solid #93c5fd; color: #1e40af;
+    padding: 12px 16px; border-radius: 8px; font-weight: 600; margin-bottom: 12px; font-size: 13.5px;
+  }
 </style>
 </head>
 <body>
@@ -206,7 +206,6 @@
     </div>
   </div>
 
-  <!-- CHARTS SECTION -->
   <div class="charts-grid">
     <div class="chart-card">
       <h3>توزيع حالة حركة المخزون</h3>
@@ -228,7 +227,6 @@
     </div>
   </div>
 
-  <!-- SUMMARY TABLE AFTER CHARTS -->
   <div class="section-title">📊 ملخص الأداء المالي والحركي حسب الفئة والتصنيف السعري</div>
   <div class="table-container">
     <table>
@@ -245,7 +243,6 @@
     </table>
   </div>
 
-  <!-- CONTROLS & DETAILS TABLE -->
   <div class="section-title">🔍 تفاصيل الأصناف والتصفيات</div>
   <div class="panel">
     <div class="controls-grid">
@@ -381,6 +378,8 @@
     <h3>إعدادات النظام والعمليات</h3>
     <p>إدارة الملفات، التصدير، وضبط قواعد التصنيف السعري والربط السحابي:</p>
 
+    <div id="uploadProgressBanner">⏳ جاري معالجة الشيت ورفعه للسحابة، يرجى الانتظار...</div>
+
     <!-- Price Classification Settings -->
     <div class="modal-section">
       <div class="modal-section-title">🏷️ ضبط قواعد حدود الفئات السعرية</div>
@@ -430,21 +429,21 @@
         </div>
         <div class="form-group" style="margin-bottom:12px;">
           <label>كلمة سر الأدمن للرفع</label>
-          <input type="password" id="adminPasswordInput" value="admin123">
+          <input type="password" id="adminPasswordInput" value="22181">
         </div>
         <button class="btn" id="connectBtn">حفظ وتوصيل القاعدة السحابية</button>
       </div>
     </div>
 
-    <!-- Data Actions (Updated Layout) -->
+    <!-- Data Actions -->
     <div class="modal-section">
       <div class="modal-section-title">📂 إدارة شيتات البيانات والتصدير</div>
       <div style="display: flex; flex-direction: column; gap: 10px;">
-        <button class="btn secondary" id="uploadInvInitialBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت رصيد أول المدة</button>
-        <button class="btn secondary" id="uploadInvFinalBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت رصيد آخر المدة</button>
-        <button class="btn secondary" id="uploadAuditBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت آخر جرد مخزون</button>
-        <button class="btn secondary" id="uploadValuationBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت آخر تقييم للمخزون</button>
-        <button class="btn secondary" id="uploadMovesBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت الحركة</button>
+        <button class="btn secondary upload-btn" id="uploadInvInitialBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت رصيد أول المدة</button>
+        <button class="btn secondary upload-btn" id="uploadInvFinalBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت رصيد آخر المدة</button>
+        <button class="btn secondary upload-btn" id="uploadAuditBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت آخر جرد مخزون</button>
+        <button class="btn secondary upload-btn" id="uploadValuationBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت آخر تقييم للمخزون</button>
+        <button class="btn secondary upload-btn" id="uploadMovesBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت الحركة</button>
         <button class="btn secondary" id="exportBtn">تصدير قائمة العروض والخصومات (Excel)</button>
       </div>
       <input type="file" id="fileInputInvInitial" accept=".xlsx, .xls, .csv">
@@ -531,6 +530,19 @@
   function cleanText(str) {
     if (!str) return "";
     return String(str).trim().replace(/\s+/g, ' ');
+  }
+
+  function setUploadLoading(isLoading, msg = "") {
+    const banner = document.getElementById("uploadProgressBanner");
+    const btns = document.querySelectorAll(".upload-btn");
+    if(isLoading) {
+      banner.style.display = "block";
+      banner.textContent = msg || "⏳ جاري قراءة الملف وتجهيزه للرفع...";
+      btns.forEach(b => b.disabled = true);
+    } else {
+      banner.style.display = "none";
+      btns.forEach(b => b.disabled = false);
+    }
   }
 
   function computeSalesAndStockFromMoves(moves) {
@@ -669,7 +681,7 @@
       updateSyncStatus("connected", "متصل بالقاعدة السحابية");
       localStorage.setItem("supa_url", url);
       localStorage.setItem("supa_key", key);
-      localStorage.setItem("admin_password", pass || "admin123");
+      localStorage.setItem("admin_password", pass || "22181");
       fetchCloudData();
       subscribeToRealtime();
       alert("تم الاتصال بنجاح!");
@@ -679,10 +691,10 @@
   window.addEventListener("DOMContentLoaded", () => {
     const savedUrl = localStorage.getItem("supa_url") || "https://vpltgqemhjmelptnnabj.supabase.co";
     const savedKey = localStorage.getItem("supa_key");
-    const savedPass = localStorage.getItem("admin_password");
+    const savedPass = localStorage.getItem("admin_password") || "22181";
     document.getElementById("supaUrl").value = savedUrl;
     if(savedKey) document.getElementById("supaKey").value = savedKey;
-    if(savedPass) document.getElementById("adminPasswordInput").value = savedPass;
+    document.getElementById("adminPasswordInput").value = savedPass;
     if(savedUrl && savedKey) {
       supabaseClient = supabase.createClient(savedUrl, savedKey);
       fetchCloudData();
@@ -742,7 +754,7 @@
 
   document.getElementById("confirmPasswordBtn").addEventListener("click", () => {
     const enteredPass = document.getElementById("modalPasswordInput").value;
-    const storedPass = localStorage.getItem("admin_password") || "admin123";
+    const storedPass = localStorage.getItem("admin_password") || "22181";
     if (enteredPass === storedPass) {
       document.getElementById("passwordModal").classList.remove("active");
       document.getElementById("modalPasswordInput").value = "";
@@ -750,7 +762,6 @@
         document.getElementById("protectedPriceSection").classList.remove("hidden");
         document.getElementById("unlockPriceLimitsBtn").classList.add("hidden");
       } else {
-        closeSettingsModal();
         if (pendingUploadType === 'inv_initial') document.getElementById("fileInputInvInitial").click();
         if (pendingUploadType === 'inv_final') document.getElementById("fileInputInvFinal").click();
         if (pendingUploadType === 'audit') document.getElementById("fileInputAudit").click();
@@ -760,12 +771,77 @@
     } else alert("كلمة السر غير صحيحة!");
   });
 
-  // Bind Buttons
   document.getElementById("uploadInvInitialBtn").addEventListener("click", () => checkAdminAndTrigger('inv_initial'));
   document.getElementById("uploadInvFinalBtn").addEventListener("click", () => checkAdminAndTrigger('inv_final'));
   document.getElementById("uploadAuditBtn").addEventListener("click", () => checkAdminAndTrigger('audit'));
   document.getElementById("uploadValuationBtn").addEventListener("click", () => checkAdminAndTrigger('valuation'));
   document.getElementById("uploadMovesBtn").addEventListener("click", () => checkAdminAndTrigger('moves'));
+
+  // Batch Upsert for large files
+  async function batchUpsert(table, items, chunkSize = 200) {
+    for (let i = 0; i < items.length; i += chunkSize) {
+      const chunk = items.slice(i, i + chunkSize);
+      const { error } = await supabaseClient.from(table).upsert(chunk);
+      if (error) throw error;
+      setUploadLoading(true, `جاري رفع الدفعة ${Math.min(i + chunkSize, items.length)} من أصل ${items.length}...`);
+    }
+  }
+
+  // Handler: Upload Valuation Sheet
+  document.getElementById("fileInputValuation").addEventListener("change", async e => {
+    const file = e.target.files[0];
+    if(!file) return;
+
+    if(!supabaseClient) {
+      alert("خطأ: لم يتم الاتصال بقاعدة البيانات السحابية Supabase!");
+      return;
+    }
+
+    setUploadLoading(true, "⏳ جاري قراءة وتحليل شيت تقييم المخزون...");
+    
+    const reader = new FileReader();
+    reader.onload = async evt => {
+      try {
+        const data = new Uint8Array(evt.target.result);
+        const wb = XLSX.read(data, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json(ws);
+
+        if(!json || json.length === 0) {
+          throw new Error("الشيت فارغ أو غير مطابق للهيكلة المطلوب قراءتها!");
+        }
+
+        const mapped = json.map((r, idx) => ({
+          id: String(r["ID"] || r["Code"] || r["كود الصنف"] || idx + 1),
+          barcode: String(r["Barcode"] || r["الباركود"] || ""),
+          name: cleanText(r["Display Name"] || r["Name"] || r["الاسم"] || r["اسم الصنف"] || ""),
+          cat: cleanText(r["Product Category"] || r["الفئة"] || "غير محدد"),
+          cost: Number(r["Cost"] || r["التكلفة"] || r["Unit Cost"] || r["تكلفة الوحدة"] || 0),
+          price: Number(r["Price"] || r["السعر"] || r["Sales Price"] || r["سعر البيع"] || 0),
+          stockValue: Number(r["Total Value"] || r["قيمة المخزون"] || r["إجمالي التكلفة"] || 0)
+        }));
+
+        setUploadLoading(true, `⏳ جاري إرسال ${mapped.length} صنف إلى قاعدة البيانات السحابية...`);
+        await batchUpsert("inventory", mapped, 200);
+
+        alert("تم رفع وترحيل شيت تقييم المخزون بنجاح!");
+        fetchCloudData();
+      } catch (err) {
+        alert("فشل الرفع: " + err.message);
+      } finally {
+        setUploadLoading(false);
+        e.target.value = "";
+      }
+    };
+
+    reader.onerror = () => {
+      alert("تعذر قراءة الملف! يرجى التأكد من سلامة ملف Excel.");
+      setUploadLoading(false);
+      e.target.value = "";
+    };
+
+    reader.readAsArrayBuffer(file);
+  });
 
   // Handler: Upload Moves
   document.getElementById("fileInputMoves").addEventListener("change", async e => {
@@ -773,74 +849,88 @@
     if(!files || !files.length) return;
     
     let allMoves = [];
-    updateSyncStatus("warning", "جاري قراءة وتنظيف بيانات شيت الحركة...");
+    setUploadLoading(true, "⏳ جاري قراءة وتنظيف ملفات الحركة...");
 
-    for (let f = 0; f < files.length; f++) {
-      const file = files[f];
-      const data = await file.arrayBuffer();
-      const wb = XLSX.read(data, { type: 'array' });
-      
-      wb.SheetNames.forEach(sheetName => {
-        const json = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
-        json.forEach((r) => {
-          allMoves.push({
-            id: String(allMoves.length + 1),
-            date: String(r["Date"] || r["التاريخ"] || ""),
-            reference: String(r["Reference"] || r["المرجع"] || ""),
-            product: cleanText(r["Product"] || r["المنتج"] || ""),
-            from_loc: String(r["From"] || r["من"] || ""),
-            to_loc: String(r["To"] || r["إلى"] || ""),
-            qty: Math.abs(Number(r["Quantity"] || r["الكمية"] || 0)),
-            uom: String(r["Unit of Measure"] || r["وحدة القياس"] || "")
+    try {
+      for (let f = 0; f < files.length; f++) {
+        const file = files[f];
+        const data = await file.arrayBuffer();
+        const wb = XLSX.read(data, { type: 'array' });
+        
+        wb.SheetNames.forEach(sheetName => {
+          const json = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
+          json.forEach((r) => {
+            allMoves.push({
+              id: String(allMoves.length + 1),
+              date: String(r["Date"] || r["التاريخ"] || ""),
+              reference: String(r["Reference"] || r["المرجع"] || ""),
+              product: cleanText(r["Product"] || r["المنتج"] || ""),
+              from_loc: String(r["From"] || r["من"] || ""),
+              to_loc: String(r["To"] || r["إلى"] || ""),
+              qty: Math.abs(Number(r["Quantity"] || r["الكمية"] || 0)),
+              uom: String(r["Unit of Measure"] || r["وحدة القياس"] || "")
+            });
           });
         });
-      });
+      }
+
+      if(allMoves.length === 0) throw new Error("لم يتم العثور على بيانات حركات داخل الملفات المحددة!");
+
+      setUploadLoading(true, `⏳ رفع ${allMoves.length} حركة مخزنية للسحابة...`);
+      await supabaseClient.from("stock_moves").delete().gte("id", "0");
+      await batchUpsert("stock_moves", allMoves, 300);
+
+      alert("تم رفع شيت الحركة بنجاح!");
+      fetchCloudData();
+    } catch(err) {
+      alert("خطأ الرفع: " + err.message);
+    } finally {
+      setUploadLoading(false);
+      e.target.value = "";
     }
-
-    if(allMoves.length === 0) { alert("لم يتم العثور على بيانات حركات بالملف!"); return; }
-
-    updateSyncStatus("warning", `رفع ${allMoves.length} حركة مخزنية للسحابة...`);
-    await supabaseClient.from("stock_moves").delete().gte("id", "0");
-    const { error } = await supabaseClient.from("stock_moves").insert(allMoves);
-    if(error) alert("خطأ الرفع: " + error.message);
-    else { alert("تم رفع شيت الحركة بنجاح!"); fetchCloudData(); }
   });
 
-  // Helper for Inventory Uploads (Initial, Final, Audit, Valuation)
+  // Generic Inventory Handler
   function handleInventoryUpload(file, fieldName, successMsg) {
     if(!file) return;
+    setUploadLoading(true, "⏳ جاري المعالجة والرفع...");
+    
     const reader = new FileReader();
     reader.onload = async evt => {
-      const wb = XLSX.read(evt.target.result, {type: 'binary'});
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const json = XLSX.utils.sheet_to_json(ws);
-      const mapped = json.map((r, idx) => {
-        let obj = {
-          id: String(r["ID"] || r["Code"] || idx + 1),
-          barcode: String(r["Barcode"] || r["الباركود"] || ""),
-          name: cleanText(r["Display Name"] || r["Name"] || r["الاسم"] || ""),
-          cat: cleanText(r["Product Category"] || r["الفئة"] || "غير محدد"),
-          cost: Number(r["Cost"] || r["التكلفة"] || r["Unit Cost"] || 0),
-          price: Number(r["Price"] || r["السعر"] || r["Sales Price"] || 0)
-        };
-        if (fieldName === 'qtyInitial') obj.qtyInitial = Number(r["Opening Stock"] || r["رصيد أول المدة"] || r["رصيد اول المدة"] || r["Quantity"] || 0);
-        if (fieldName === 'qtyFinal') obj.qtyFinal = Number(r["Closing Stock"] || r["رصيد آخر المدة"] || r["رصيد اخر المدة"] || r["Quantity"] || 0);
-        if (fieldName === 'audit') {
-          obj.auditQty = Number(r["Physical Audit"] || r["الجرد الفعلي"] || r["Quantity"] || 0);
-          obj.auditDate = String(r["Audit Date"] || r["تاريخ الجرد"] || new Date().toISOString().split('T')[0]);
-        }
-        if (fieldName === 'valuation') {
-          if (r["Cost"] || r["التكلفة"] || r["Unit Cost"]) obj.cost = Number(r["Cost"] || r["التكلفة"] || r["Unit Cost"]);
-          if (r["Total Value"] || r["قيمة المخزون"]) obj.stockValue = Number(r["Total Value"] || r["قيمة المخزون"]);
-        }
-        return obj;
-      });
+      try {
+        const data = new Uint8Array(evt.target.result);
+        const wb = XLSX.read(data, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json(ws);
+        
+        const mapped = json.map((r, idx) => {
+          let obj = {
+            id: String(r["ID"] || r["Code"] || idx + 1),
+            barcode: String(r["Barcode"] || r["الباركود"] || ""),
+            name: cleanText(r["Display Name"] || r["Name"] || r["الاسم"] || ""),
+            cat: cleanText(r["Product Category"] || r["الفئة"] || "غير محدد"),
+            cost: Number(r["Cost"] || r["التكلفة"] || r["Unit Cost"] || 0),
+            price: Number(r["Price"] || r["السعر"] || r["Sales Price"] || 0)
+          };
+          if (fieldName === 'qtyInitial') obj.qtyInitial = Number(r["Opening Stock"] || r["رصيد أول المدة"] || r["رصيد اول المدة"] || r["Quantity"] || 0);
+          if (fieldName === 'qtyFinal') obj.qtyFinal = Number(r["Closing Stock"] || r["رصيد آخر المدة"] || r["رصيد اخر المدة"] || r["Quantity"] || 0);
+          if (fieldName === 'audit') {
+            obj.auditQty = Number(r["Physical Audit"] || r["الجرد الفعلي"] || r["Quantity"] || 0);
+            obj.auditDate = String(r["Audit Date"] || r["تاريخ الجرد"] || new Date().toISOString().split('T')[0]);
+          }
+          return obj;
+        });
 
-      const { error } = await supabaseClient.from("inventory").upsert(mapped);
-      if(error) alert("خطأ الرفع: " + error.message);
-      else { alert(successMsg); fetchCloudData(); }
+        await batchUpsert("inventory", mapped, 200);
+        alert(successMsg);
+        fetchCloudData();
+      } catch(err) {
+        alert("خطأ الرفع: " + err.message);
+      } finally {
+        setUploadLoading(false);
+      }
     };
-    reader.readAsBinaryString(file);
+    reader.readAsArrayBuffer(file);
   }
 
   document.getElementById("fileInputInvInitial").addEventListener("change", e => {
@@ -851,9 +941,6 @@
   });
   document.getElementById("fileInputAudit").addEventListener("change", e => {
     handleInventoryUpload(e.target.files[0], 'audit', "تم رفع آخر جرد مخزون بنجاح!");
-  });
-  document.getElementById("fileInputValuation").addEventListener("change", e => {
-    handleInventoryUpload(e.target.files[0], 'valuation', "تم رفع آخر تقييم للمخزون بنجاح!");
   });
 
   function renderCharts(items) {
