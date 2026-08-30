@@ -1292,11 +1292,16 @@
       if (url && key) {
         try {
           supabaseClient = window.supabase.createClient(url, key);
-          await loadCloudData();
-          return true;
-        } catch (e) { console.error("Supabase connection error:", e); document.getElementById("cloudStatusText").innerText = "⚠️ تعذر الاتصال: " + e.message; }
+          const result = await loadCloudData();
+          return result; // {ok, itemsErr, movesErr} -- ok=false means the client was created
+                          // but reading real data actually failed; caller must not report this as success.
+        } catch (e) {
+          console.error("Supabase connection error:", e);
+          document.getElementById("cloudStatusText").innerText = "⚠️ تعذر الاتصال: " + e.message;
+          return { ok: false, itemsErr: e, movesErr: e };
+        }
       }
-      return false;
+      return { ok: false, itemsErr: null, movesErr: null };
     }
     // Supabase (like PostgREST generally) caps an unpaginated select at 1000 rows by
     // default -- with a real dataset of 33,000+ items and 50,000+ moves, a plain
@@ -1316,8 +1321,28 @@
       }
       return { data: all, error: null };
     }
+    // Renders the honest current cloud status -- called after connecting AND after every
+    // upload, so opening الإعدادات at any point shows the real, current truth rather than
+    // a snapshot from the moment of connection. NEVER report "✅ متصل ومزامَن" while a real
+    // read/write error exists on either table -- an empty-but-error-free table (0 rows) is a
+    // legitimate "not uploaded yet" state and must be reported differently from an actual error.
+    function renderCloudStatus(itemsErr, movesErr) {
+      const el = document.getElementById("cloudStatusText");
+      if (!supabaseClient) { el.innerText = ""; return; }
+      if (itemsErr || movesErr) {
+        const lines = ["⚠️ الاتصال قائم لكن يوجد خطأ فعلي في القراءة/الكتابة من Supabase:"];
+        if (itemsErr) lines.push(`• جدول الأصناف (inventory_items): ${formatSupabaseError(itemsErr)}`);
+        if (movesErr) lines.push(`• جدول الحركات (stock_moves): ${formatSupabaseError(movesErr)}`);
+        lines.push("راجع: هل الجدول موجود بنفس الاسم؟ هل سياسات RLS تسمح بالقراءة/الكتابة بالمفتاح anon المستخدم هنا؟");
+        el.innerText = lines.join("\n");
+        el.style.whiteSpace = "pre-line";
+      } else {
+        el.style.whiteSpace = "normal";
+        el.innerText = `✅ متصل ومزامَن مع Supabase (${state.items.length.toLocaleString('en-US')} صنف، ${state.moves.length.toLocaleString('en-US')} حركة).`;
+      }
+    }
     async function loadCloudData() {
-      if (!supabaseClient) return;
+      if (!supabaseClient) return { ok: false, itemsErr: null, movesErr: null };
       try {
         setUploadLoading(true, "جاري استدعاء البيانات من السحابة (Supabase)...");
         const { data: cloudItems, error: itemsErr } = await selectAllRows("inventory_items");
@@ -1327,20 +1352,47 @@
         if (!movesErr && cloudMoves && cloudMoves.length > 0) { state.moves = cloudMoves; state.isDemoData = false; }
         else if (movesErr) console.warn("stock_moves load error:", movesErr.message);
         recomputeAndRenderAll();
-        document.getElementById("cloudStatusText").innerText = `✅ متصل ومزامَن مع Supabase (${state.items.length.toLocaleString('en-US')} صنف، ${state.moves.length.toLocaleString('en-US')} حركة).`;
+        renderCloudStatus(itemsErr, movesErr);
+        return { ok: !itemsErr && !movesErr, itemsErr, movesErr };
       } catch (err) {
         console.warn("Cloud load failed, using local cache:", err);
-        document.getElementById("cloudStatusText").innerText = "⚠️ فشلت المزامنة، يتم العمل بالبيانات المحلية.";
+        document.getElementById("cloudStatusText").innerText = "⚠️ فشلت المزامنة (خطأ غير متوقع): " + err.message + "\nيتم العمل بالبيانات المحلية فقط.";
+        return { ok: false, itemsErr: err, movesErr: err };
       } finally { setUploadLoading(false); }
     }
+    // Turns a Supabase/PostgREST error object into a readable string. These errors carry
+    // useful diagnostic fields (message, details, hint, code) that a plain String(error)
+    // or JSON.stringify often loses (Error/PostgrestError objects don't stringify cleanly).
+    function formatSupabaseError(error) {
+      if (!error) return "";
+      const parts = [];
+      if (error.message) parts.push(error.message);
+      if (error.details) parts.push(error.details);
+      if (error.hint) parts.push(`تلميح: ${error.hint}`);
+      if (error.code) parts.push(`(code: ${error.code})`);
+      return parts.join(" — ") || JSON.stringify(error);
+    }
+    // CRITICAL: this function's return value is the ONLY signal callers have that a cloud
+    // sync actually worked. It used to only console.error() on failure and return nothing --
+    // every caller treated that as silent success, so the app would tell the user "تم الرفع
+    // بنجاح" even when NOTHING reached Supabase (e.g. a table that doesn't exist yet, an RLS
+    // policy blocking writes for the anon key, a schema/column mismatch). Never go back to
+    // swallowing this error -- always return {ok, syncedCount, totalCount, error} and make
+    // every caller check .ok before claiming success to the user.
     async function batchUpsert(tableName, dataArray) {
-      if (!supabaseClient || !dataArray.length) return;
+      if (!supabaseClient || !dataArray.length) return { ok: true, syncedCount: 0, totalCount: 0, error: null };
       const CHUNK_SIZE = 500;
+      let syncedCount = 0;
       for (let i = 0; i < dataArray.length; i += CHUNK_SIZE) {
         const chunk = dataArray.slice(i, i + CHUNK_SIZE);
         const { error } = await supabaseClient.from(tableName).upsert(chunk);
-        if (error) console.error(`Error uploading to ${tableName}:`, error);
+        if (error) {
+          console.error(`Error uploading to ${tableName}:`, error);
+          return { ok: false, syncedCount, totalCount: dataArray.length, error: formatSupabaseError(error) };
+        }
+        syncedCount += chunk.length;
       }
+      return { ok: true, syncedCount, totalCount: dataArray.length, error: null };
     }
 
     /* ============================================================================
@@ -1802,14 +1854,28 @@
           // two different facts, and only the second one should ever gate a cloud sync.
           // upsert-by-id is idempotent, so it is always safe to push everything this file
           // just mapped, whether or not it was locally new.
+          let movesSyncResult = null;
           if (supabaseClient && allMoves.length) {
             const movesToSync = allMoves.map(m => ({ ...m, id: m.id || moveId(m) }));
             setUploadLoading(true, `⏳ جاري رفع ${movesToSync.length.toLocaleString('en-US')} حركة للسحابة...`);
-            await batchUpsert("stock_moves", movesToSync);
+            movesSyncResult = await batchUpsert("stock_moves", movesToSync);
           }
           recomputeAndRenderAll();
           let movesMsg = (demoWasCleared ? `🧹 تم حذف بيانات العرض التجريبية تلقائياً لأن هذا أول رفع حقيقي.\n\n` : '') +
-            `✅ تمت معالجة ملف/ملفات الحركات بنجاح.\nإجمالي الصفوف المقروءة: ${summary.total}\nتم التعرف على: ${summary.mapped} حركة\nتمت إضافتها لسجل الحركات: ${addedCount} حركة جديدة\nتم تجاهلها كتكرار لحركة موجودة مسبقاً: ${duplicateCount}\nتم تجاهل ${summary.skippedEmpty} صف فارغ (بدون اسم صنف).\n\n⚠️ ملاحظة: هذا الرفع يُضيف إلى سجل الحركات المتراكم ولا يستبدله (ليس لقطة). لحذف حركات قديمة أو غير صحيحة استخدم "مسح جميع البيانات" من الإعدادات، أو راجع مصدر البيانات في Supabase مباشرة.`;
+            `✅ تمت معالجة ملف/ملفات الحركات محلياً بنجاح.\nإجمالي الصفوف المقروءة: ${summary.total}\nتم التعرف على: ${summary.mapped} حركة\nتمت إضافتها لسجل الحركات: ${addedCount} حركة جديدة\nتم تجاهلها كتكرار لحركة موجودة مسبقاً: ${duplicateCount}\nتم تجاهل ${summary.skippedEmpty} صف فارغ (بدون اسم صنف).\n\n⚠️ ملاحظة: هذا الرفع يُضيف إلى سجل الحركات المتراكم ولا يستبدله (ليس لقطة). لحذف حركات قديمة أو غير صحيحة استخدم "مسح جميع البيانات" من الإعدادات، أو راجع مصدر البيانات في Supabase مباشرة.`;
+          // CRITICAL: never claim the cloud sync succeeded without checking the actual result.
+          // This is exactly the class of silent failure that caused moves to look "processed"
+          // while never actually reaching the database.
+          if (movesSyncResult) {
+            if (movesSyncResult.ok) {
+              movesMsg += `\n\n☁️ تم رفع ${movesSyncResult.syncedCount.toLocaleString('en-US')} حركة إلى قاعدة البيانات السحابية (Supabase) بنجاح.`;
+            } else {
+              movesMsg += `\n\n❌ فشل رفع الحركات إلى قاعدة البيانات السحابية!\nتم رفع ${movesSyncResult.syncedCount.toLocaleString('en-US')} من أصل ${movesSyncResult.totalCount.toLocaleString('en-US')} فقط قبل توقف العملية بسبب خطأ.\nرسالة الخطأ من Supabase: ${movesSyncResult.error}\n\n⚠️ هذه الحركات محفوظة في هذا المتصفح فقط الآن ولن تظهر على أي جهاز آخر ولا تُحسب "مؤمّنة" حتى يُحل هذا الخطأ. الأسباب الشائعة: جدول stock_moves غير موجود بنفس الاسم، أو أعمدة الجدول لا تطابق أعمدة البيانات المرفوعة، أو سياسة RLS في Supabase لا تسمح بالكتابة (upsert) بمفتاح anon.`;
+            }
+          } else if (supabaseClient) {
+            movesMsg += `\n\nℹ️ لا توجد حركات جديدة لرفعها للسحابة في هذا الملف.`;
+          }
+          renderCloudStatus(null, movesSyncResult && !movesSyncResult.ok ? { message: movesSyncResult.error } : null);
           alert(movesMsg);
         } else {
           const file = fileInput.files[0];
@@ -1861,16 +1927,26 @@
               newItemsWarning = `\n\n⚠️ تنبيه مهم: ${newKeysCount} من ${parsed.stats.mapped} صف في هذا الملف لم يتطابقوا مع أي صنف موجود بالفعل، وتم إنشاؤهم كأصناف جديدة (بتكلفة/سعر صفر مؤقتاً). لو كنت تتوقع أن هذا الملف يُحدّث أصنافاً موجودة بالفعل، فهذا يعني على الأرجح أن طريقة تعريف الصنف هنا (اسم فقط، أو كود مختلف) لا تُطابق طريقة تعريفه في الملف الذي رفعته سابقاً — راجع الأصناف الجديدة في جدول المخزون وتأكد إن مش لازم تصححها يدوياً أو تعيد الرفع بنفس نوع كود التعريف.`;
             }
           }
+          let itemsSyncResult = null;
           if (supabaseClient) {
             setUploadLoading(true, `⏳ جاري حفظ الأصناف بالسحابة...`);
-            await batchUpsert("inventory_items", state.items.map(it => ({ ...it, id: (it.key || '').replace(/[^a-zA-Z0-9_]/g, '_') })));
+            itemsSyncResult = await batchUpsert("inventory_items", state.items.map(it => ({ ...it, id: (it.key || '').replace(/[^a-zA-Z0-9_]/g, '_') })));
           }
           recomputeAndRenderAll();
           let msg = (demoWasCleared ? `🧹 تم حذف بيانات العرض التجريبية تلقائياً لأن هذا أول رفع حقيقي.\n\n` : '') +
-            `✅ تمت معالجة الملف بنجاح.\nإجمالي الصفوف: ${parsed.stats.total}\nتم استيراد: ${parsed.stats.mapped} صف`;
+            `✅ تمت معالجة الملف محلياً بنجاح.\nإجمالي الصفوف: ${parsed.stats.total}\nتم استيراد: ${parsed.stats.mapped} صف`;
           if (parsed.stats.usedFallbackLabel > 0) msg += `\nℹ️ ${parsed.stats.usedFallbackLabel} صف كان بدون اسم صريح (خلايا مدموجة في التصدير) وتم استيرادها بكود صنف فريد بدلاً من تجاهلها.`;
           if (parsed.stats.skippedEmpty > 0) msg += `\n⚠️ تم تجاهل ${parsed.stats.skippedEmpty} صف فارغ تماماً (بدون اسم أو كود).`;
           msg += newItemsWarning;
+          // CRITICAL: same silent-failure risk as moves -- never claim cloud success unchecked.
+          if (itemsSyncResult) {
+            if (itemsSyncResult.ok) {
+              msg += `\n\n☁️ تم رفع ${itemsSyncResult.syncedCount.toLocaleString('en-US')} صنف إلى قاعدة البيانات السحابية (Supabase) بنجاح.`;
+            } else {
+              msg += `\n\n❌ فشل رفع الأصناف إلى قاعدة البيانات السحابية!\nتم رفع ${itemsSyncResult.syncedCount.toLocaleString('en-US')} من أصل ${itemsSyncResult.totalCount.toLocaleString('en-US')} فقط قبل توقف العملية بسبب خطأ.\nرسالة الخطأ من Supabase: ${itemsSyncResult.error}\n\n⚠️ الأصناف محفوظة في هذا المتصفح فقط الآن. الأسباب الشائعة: جدول inventory_items غير موجود بنفس الاسم، أو أعمدة الجدول لا تطابق أعمدة البيانات المرفوعة، أو سياسة RLS في Supabase لا تسمح بالكتابة (upsert) بمفتاح anon.`;
+            }
+          }
+          renderCloudStatus(itemsSyncResult && !itemsSyncResult.ok ? { message: itemsSyncResult.error } : null, null);
           alert(msg);
         }
       } catch (err) {
@@ -2186,9 +2262,20 @@
       const key = document.getElementById("supabaseKeyInput").value.trim();
       localStorage.setItem("supabase_url", url);
       localStorage.setItem("supabase_key", key);
-      const connected = await initSupabase();
-      if (connected) alert("✅ تم الحفظ والاتصال بنجاح!");
-      else alert("⚠️ لم يتم الاتصال — تحقق من الرابط والمفتاح.");
+      const result = await initSupabase();
+      // NEVER say "تم الاتصال بنجاح" just because a client object was created -- createClient()
+      // almost never throws even for a wrong URL/key/table, it only fails later on the actual
+      // request. result.ok reflects whether reading the real tables actually worked.
+      if (result.ok) {
+        alert("✅ تم الحفظ والاتصال بنجاح، وتم التأكد من قراءة البيانات فعلياً من الجداول.");
+      } else if (result.itemsErr || result.movesErr) {
+        alert("⚠️ تم إنشاء الاتصال، لكن حدث خطأ فعلي عند قراءة البيانات من Supabase — راجع التفاصيل الكاملة أسفل هذا الحقل في الإعدادات.\n\n" +
+          (result.itemsErr ? `جدول الأصناف: ${formatSupabaseError(result.itemsErr)}\n` : "") +
+          (result.movesErr ? `جدول الحركات: ${formatSupabaseError(result.movesErr)}\n` : "") +
+          "\nالأسباب الشائعة: اسم الجدول غير مطابق، أو سياسات RLS في Supabase لا تسمح بالوصول بمفتاح anon.");
+      } else {
+        alert("⚠️ لم يتم الاتصال — تحقق من الرابط والمفتاح.");
+      }
     });
 
     function bindUploadTrigger(btnId, fileInputId, uploadType) {
