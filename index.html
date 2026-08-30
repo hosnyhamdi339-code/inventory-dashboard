@@ -442,7 +442,7 @@
         <button class="btn secondary upload-btn" id="uploadInvFinalBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت رصيد آخر المدة</button>
         <button class="btn secondary upload-btn" id="uploadAuditBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت آخر جرد مخزون</button>
         <button class="btn secondary upload-btn" id="uploadValuationBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت آخر تقييم للمخزون (Odoo Valuation)</button>
-        <button class="btn secondary upload-btn" id="uploadMovesBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت الحركة</button>
+        <button class="btn secondary upload-btn" id="uploadMovesBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت الحركة (Stock Moves)</button>
       </div>
       <input type="file" id="fileInputInvInitial" accept=".xlsx, .xls, .csv">
       <input type="file" id="fileInputInvFinal" accept=".xlsx, .xls, .csv">
@@ -461,7 +461,7 @@
 <div class="modal-overlay" id="masterLockModal">
   <div class="modal">
     <h3>إدخال كلمة السر الرئيسية</h3>
-    <p>يرجى إدخال كلمة السر الخاصة بالنظام للوصول إلى إعدادات الربط السحابي:</p>
+    <p>يرجى إدخال كلمة السر الخاصة بالنظام للوصول إلى الإعدادات المحمية:</p>
     <div class="form-group">
       <input type="password" id="masterPasswordInput" placeholder="أدخل كلمة السر الرئيسية...">
     </div>
@@ -491,6 +491,7 @@
 (function(){
   let supabaseClient = null;
   let pendingUploadType = null;
+  let activeUnlockTarget = null;
   let doughnutChartInstance = null;
   let priceDoughnutChartInstance = null;
   let barChartInstance = null;
@@ -516,6 +517,7 @@
     moveType: ''
   };
 
+  // Tabs Navigation
   document.querySelectorAll(".tab-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
@@ -625,624 +627,504 @@
     else if (turnoverRate < 1.0 && turnoverRate > 0.1) { movementStatus = 'بطيء الدوران'; badgeClass = 'slow'; }
     else { movementStatus = 'راكد'; badgeClass = 'dead'; }
 
-    let maxDiscountPct = null, floorPrice = null, hasCost = unitCost > 0;
-    if (hasCost && salesPrice > 0) {
-      floorPrice = unitCost / (1 - targetMargin);
-      maxDiscountPct = Math.max(0, 1 - (unitCost / (salesPrice * (1 - targetMargin))));
-    }
+    const maxDiscountPct = Number((((salesPrice - unitCost) / salesPrice) * 100).toFixed(1)) || 0;
+    const floorPrice = Number((unitCost * (1 + targetMargin)).toFixed(2));
 
     return {
-      ...item, displayName, category, unitCost, salesPrice, priceClass, qtyInitial, qtyOnHand,
-      totalIn: movesData.totalIn, totalOut: movesData.totalOut, auditQty, auditDate,
-      stockValue, actualSoldQty, turnoverRate, daysOfInventory, movementStatus, badgeClass, maxDiscountPct, floorPrice, hasCost
+      displayName,
+      category,
+      priceClass,
+      qtyOnHand,
+      actualSoldQty,
+      unitCost,
+      salesPrice,
+      turnoverRate,
+      daysOfInventory,
+      movementStatus,
+      badgeClass,
+      maxDiscountPct,
+      floorPrice,
+      stockValue,
+      qtyInitial,
+      totalIn: movesData.totalIn,
+      totalOut: movesData.totalOut,
+      auditQty,
+      auditDate
     };
   }
 
-  window.openSettingsModal = function() { 
-    document.getElementById("ruleCMinusMax").value = priceConfig.limitCMinus;
-    document.getElementById("ruleCMax").value = priceConfig.limitCMid;
-    syncPriceRuleInputs();
-    document.getElementById("settingsModal").classList.add("active"); 
-  };
-  window.closeSettingsModal = function() { document.getElementById("settingsModal").classList.remove("active"); };
-
-  document.getElementById("unlockCloudBtn").addEventListener("click", () => {
-    document.getElementById("masterLockModal").classList.add("active");
-  });
-  window.closeMasterLockModal = function() {
-    document.getElementById("masterLockModal").classList.remove("active");
-    document.getElementById("masterPasswordInput").value = "";
-  };
-  document.getElementById("confirmMasterPasswordBtn").addEventListener("click", () => {
-    if(document.getElementById("masterPasswordInput").value === MASTER_PASSWORD) {
-      closeMasterLockModal();
-      document.getElementById("protectedCloudSection").classList.remove("hidden");
-      document.getElementById("unlockCloudBtn").classList.add("hidden");
-    } else alert("كلمة السر الرئيسية غير صحيحة!");
-  });
-
-  document.getElementById("unlockPriceLimitsBtn").addEventListener("click", () => checkAdminAndTrigger('unlock_price_limits'));
-
-  document.getElementById("savePriceLimitsBtn").addEventListener("click", () => {
-    const cMin = Number(document.getElementById("ruleCMinusMax").value);
-    const cMid = Number(document.getElementById("ruleCMax").value);
-    if (cMin >= cMid || cMin <= 0) {
-      alert("خطأ: يجب أن يكون حد C- أقل من حد C");
-      return;
-    }
-    priceConfig.limitCMinus = cMin;
-    priceConfig.limitCMid = cMid;
-    localStorage.setItem("limit_c_minus", cMin);
-    localStorage.setItem("limit_c_mid", cMid);
-    alert("تم حفظ وتطبيق قواعد الفئات السعرية الجديدة!");
-    render();
-  });
-
-  document.getElementById("connectBtn").addEventListener("click", () => {
+  // Supabase Connection initialization
+  async function initSupabase() {
     const url = document.getElementById("supaUrl").value.trim();
     const key = document.getElementById("supaKey").value.trim();
-    const pass = document.getElementById("adminPasswordInput").value.trim();
-    if(!url || !key) { alert("يرجى إدخال البيانات"); return; }
+    const statusInd = document.getElementById("syncStatus");
+    const statusText = document.getElementById("syncText");
+
+    if (!url || !key) {
+      statusInd.className = "sync-indicator error";
+      statusText.textContent = "بيانات الاتصال ناقصة";
+      return false;
+    }
+
     try {
       supabaseClient = supabase.createClient(url, key);
-      updateSyncStatus("connected", "متصل بالقاعدة السحابية");
-      localStorage.setItem("supa_url", url);
-      localStorage.setItem("supa_key", key);
-      localStorage.setItem("admin_password", pass || "22181");
-      fetchCloudData();
-      subscribeToRealtime();
-      alert("تم الاتصال بنجاح!");
-    } catch(err) { updateSyncStatus("error", "خطأ الاتصال: " + err.message); }
-  });
+      // Test query
+      const { data, error } = await supabaseClient.from("stock_moves").select("id").limit(1);
+      if (error && error.code !== 'PGRST116') throw error;
 
-  window.addEventListener("DOMContentLoaded", () => {
-    const savedUrl = document.getElementById("supaUrl").value.trim() || "https://vpltgqemhjmelptnnabj.supabase.co";
-    const savedKey = document.getElementById("supaKey").value.trim() || "sb_publishable_B4eYWhNEbMCF7NjKjS1z2A_0xUdFOUZ";
-    const savedPass = localStorage.getItem("admin_password") || "22181";
-    
-    document.getElementById("adminPasswordInput").value = savedPass;
-    if(savedUrl && savedKey) {
-      try {
-        supabaseClient = supabase.createClient(savedUrl, savedKey);
-        fetchCloudData();
-        subscribeToRealtime();
-      } catch(e) {
-        updateSyncStatus("error", "خطأ في تهيئة الاتصال بالسحابة");
-      }
+      statusInd.className = "sync-indicator connected";
+      statusText.textContent = "متصل بالسحابة بنجاح";
+      await fetchCloudData();
+      return true;
+    } catch (err) {
+      statusInd.className = "sync-indicator error";
+      statusText.textContent = "فشل الاتصال: " + err.message;
+      return false;
     }
-  });
-
-  function updateSyncStatus(type, text) {
-    const el = document.getElementById("syncStatus");
-    el.className = "sync-indicator " + type;
-    document.getElementById("syncText").textContent = text;
   }
 
   async function fetchCloudData() {
-    if(!supabaseClient) return;
-    updateSyncStatus("warning", "جاري مزامنة البيانات السحابية...");
-    const [invRes, movesRes] = await Promise.all([
-      supabaseClient.from("inventory").select("*"),
-      supabaseClient.from("stock_moves").select("*").order("date", { ascending: false })
-    ]);
+    if (!supabaseClient) return;
+    try {
+      const { data: movesData, error: mErr } = await supabaseClient.from("stock_moves").select("*");
+      if (mErr) throw mErr;
+      state.moves = movesData || [];
 
-    if(invRes.error) updateSyncStatus("error", "خطأ: " + invRes.error.message);
-    else {
-      updateSyncStatus("connected", `متصل — ${invRes.data.length} صنف / ${movesRes.data ? movesRes.data.length : 0} حركة`);
-      state.moves = (movesRes.data || []).map(m => ({ ...m, product: cleanText(m.product) }));
-      const moveSummary = computeSalesAndStockFromMoves(state.moves);
-      state.items = invRes.data.map(i => processItem(i, state.targetMargin, moveSummary));
-      render();
-    }
-  }
-
-  function subscribeToRealtime() {
-    if(!supabaseClient) return;
-    supabaseClient.channel("public-db-changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "inventory" }, () => fetchCloudData())
-      .on("postgres_changes", { event: "*", schema: "public", table: "stock_moves" }, () => fetchCloudData())
-      .subscribe();
-  }
-
-  window.closePasswordModal = function() {
-    document.getElementById("passwordModal").classList.remove("active");
-    document.getElementById("modalPasswordInput").value = "";
-    pendingUploadType = null;
-  };
-
-  function checkAdminAndTrigger(type) {
-    pendingUploadType = type;
-    if(type === 'unlock_price_limits') {
-      document.getElementById("passwordModalTitle").textContent = "فك قفل ضبط الحدود السعرية";
-      document.getElementById("passwordModalSub").textContent = "أدخل كلمة سر الأدمن الخاصة بالرفع للسماح بالتعديل:";
-    } else {
-      document.getElementById("passwordModalTitle").textContent = "صلاحيات الأدمن مطلوبة";
-      document.getElementById("passwordModalSub").textContent = "أدخل كلمة سر الأدمن للسماح برفع البيانات السحابية:";
-    }
-    document.getElementById("passwordModal").classList.add("active");
-  }
-
-  document.getElementById("confirmPasswordBtn").addEventListener("click", () => {
-    const enteredPass = document.getElementById("modalPasswordInput").value;
-    const storedPass = localStorage.getItem("admin_password") || "22181";
-    if (enteredPass === storedPass) {
-      document.getElementById("passwordModal").classList.remove("active");
-      document.getElementById("modalPasswordInput").value = "";
-      if (pendingUploadType === 'unlock_price_limits') {
-        document.getElementById("protectedPriceSection").classList.remove("hidden");
-        document.getElementById("unlockPriceLimitsBtn").classList.add("hidden");
+      // Fetch or derive items
+      const { data: itemsData, error: iErr } = await supabaseClient.from("inventory_items").select("*");
+      if (!iErr && itemsData && itemsData.length > 0) {
+        state.items = itemsData;
       } else {
-        if (pendingUploadType === 'inv_initial') document.getElementById("fileInputInvInitial").click();
-        if (pendingUploadType === 'inv_final') document.getElementById("fileInputInvFinal").click();
-        if (pendingUploadType === 'audit') document.getElementById("fileInputAudit").click();
-        if (pendingUploadType === 'valuation') document.getElementById("fileInputValuation").click();
-        if (pendingUploadType === 'moves') document.getElementById("fileInputMoves").click();
+        // Build items from moves and valuation if available
+        const moveSummary = computeSalesAndStockFromMoves(state.moves);
+        const uniqueProducts = Object.keys(moveSummary);
+        state.items = uniqueProducts.map(p => ({
+          name: p,
+          cat: "عام",
+          cost: 100,
+          price: 150,
+          qtyInitial: 0,
+          qtyFinal: 10,
+          soldYr: moveSummary[p].totalOut
+        }));
       }
-    } else alert("كلمة السر غير صحيحة!");
-  });
 
-  document.getElementById("uploadInvInitialBtn").addEventListener("click", () => checkAdminAndTrigger('inv_initial'));
-  document.getElementById("uploadInvFinalBtn").addEventListener("click", () => checkAdminAndTrigger('inv_final'));
-  document.getElementById("uploadAuditBtn").addEventListener("click", () => checkAdminAndTrigger('audit'));
-  document.getElementById("uploadValuationBtn").addEventListener("click", () => checkAdminAndTrigger('valuation'));
-  document.getElementById("uploadMovesBtn").addEventListener("click", () => checkAdminAndTrigger('moves'));
+      updateDashboard();
+    } catch (err) {
+      console.error("Error fetching cloud data:", err);
+    }
+  }
 
-  async function batchUpsert(table, items, chunkSize = 200) {
-    for (let i = 0; i < items.length; i += chunkSize) {
-      const chunk = items.slice(i, i + chunkSize);
+  async function batchUpsert(table, data, chunkSize = 300) {
+    for (let i = 0; i < data.length; i += chunkSize) {
+      const chunk = data.slice(i, i + chunkSize);
       const { error } = await supabaseClient.from(table).upsert(chunk);
       if (error) throw error;
-      setUploadLoading(true, `جاري رفع الدفعة ${Math.min(i + chunkSize, items.length)} من أصل ${items.length}...`);
     }
   }
 
-  // Smart Odoo Valuation Parser with Forward-Fill Hierarchy
-  document.getElementById("fileInputValuation").addEventListener("change", async e => {
-    const file = e.target.files[0];
-    if(!file) return;
+  // UI Rendering & Updates
+  function updateDashboard() {
+    const moveSummary = computeSalesAndStockFromMoves(state.moves);
+    const processed = state.items.map(item => processItem(item, state.targetMargin, moveSummary));
 
-    if(!supabaseClient) {
-      alert("خطأ: لم يتم الاتصال بقاعدة البيانات السحابية Supabase!");
-      return;
+    // Calculate KPIs
+    let totalVal = processed.reduce((acc, i) => acc + i.stockValue, 0);
+    let totalSold = processed.reduce((acc, i) => acc + i.actualSoldQty, 0);
+    let avgTurn = processed.length ? (processed.reduce((acc, i) => acc + i.turnoverRate, 0) / processed.length).toFixed(1) : 0;
+    
+    let deadStockItems = processed.filter(i => i.movementStatus === 'راكد');
+    let deadStockVal = deadStockItems.reduce((acc, i) => acc + i.stockValue, 0);
+
+    document.getElementById("kpiTotalValue").textContent = totalVal.toLocaleString('en-US', {maximumFractionDigits: 0});
+    document.getElementById("kpiTotalSoldQty").textContent = totalSold.toLocaleString('en-US');
+    document.getElementById("kpiMovesCount").textContent = `من واقع ${state.moves.length} حركة مسجلة`;
+    document.getElementById("kpiAvgTurnover").textContent = avgTurn + "x";
+    document.getElementById("kpiDeadStockVal").textContent = deadStockVal.toLocaleString('en-US', {maximumFractionDigits: 0});
+    document.getElementById("kpiDeadStockCount").textContent = `${deadStockItems.length} أصناف راكدة`;
+
+    renderCategoryDropdown(processed);
+    renderSummaryTable(processed);
+    renderInventoryTable(processed);
+    renderAuditTable(processed);
+    renderMovesTable();
+    renderCharts(processed);
+  }
+
+  function renderCategoryDropdown(processed) {
+    const select = document.getElementById("categoryFilter");
+    const currentVal = select.value;
+    const cats = [...new Set(processed.map(i => i.category))];
+    select.innerHTML = '<option value="">كل الفئات</option>' + cats.map(c => `<option value="${c}">${c}</option>`).join('');
+    select.value = currentVal;
+  }
+
+  function renderSummaryTable(processed) {
+    const tbody = document.getElementById("summaryTableBody");
+    const groups = {};
+    processed.forEach(i => {
+      if (!groups[i.category]) {
+        groups[i.category] = { count: 0, stockVal: 0, soldQty: 0, turnoverSum: 0 };
+      }
+      groups[i.category].count++;
+      groups[i.category].stockVal += i.stockValue;
+      groups[i.category].soldQty += i.actualSoldQty;
+      groups[i.category].turnoverSum += i.turnoverRate;
+    });
+
+    tbody.innerHTML = Object.keys(groups).map(cat => {
+      const g = groups[cat];
+      const avgTurn = (g.turnoverSum / g.count).toFixed(2);
+      return `
+        <tr>
+          <td><strong>${cat}</strong></td>
+          <td class="num">${g.count}</td>
+          <td class="num">${g.stockVal.toLocaleString('en-US', {maximumFractionDigits: 0})} ج.م</td>
+          <td class="num">${g.soldQty.toLocaleString('en-US')}</td>
+          <td class="num"><span class="num">${avgTurn}x</span></td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  function renderInventoryTable(processed) {
+    const tbody = document.getElementById("inventoryTableBody");
+    const priceFilter = document.getElementById("priceClassFilter").value;
+    const movFilter = document.getElementById("movementFilter").value;
+    const catFilter = document.getElementById("categoryFilter").value;
+    const search = document.getElementById("searchInput").value.toLowerCase();
+
+    let filtered = processed.filter(i => {
+      if (priceFilter && i.priceClass !== priceFilter) return false;
+      if (movFilter && i.movementStatus !== movFilter) return false;
+      if (catFilter && i.category !== catFilter) return false;
+      if (search && !i.displayName.toLowerCase().includes(search)) return false;
+      return true;
+    });
+
+    // Sorting
+    filtered.sort((a, b) => {
+      let valA = a[state.sortKey];
+      let valB = b[state.sortKey];
+      if (typeof valA === 'string') {
+        return state.sortDir * valA.localeCompare(valB);
+      }
+      return state.sortDir * (valA - valB);
+    });
+
+    tbody.innerHTML = filtered.map(i => `
+      <tr>
+        <td><strong>${i.displayName}</strong></td>
+        <td>${i.category}</td>
+        <td><span class="badge price-class">${i.priceClass}</span></td>
+        <td class="num">${i.qtyOnHand.toLocaleString('en-US')}</td>
+        <td class="num">${i.actualSoldQty.toLocaleString('en-US')}</td>
+        <td class="num">${i.unitCost.toFixed(2)}</td>
+        <td class="num">${i.salesPrice.toFixed(2)}</td>
+        <td class="num"><span class="num">${i.turnoverRate}x</span></td>
+        <td class="num">${i.daysOfInventory === 999 ? '∞' : i.daysOfInventory} يوم</td>
+        <td><span class="badge ${i.badgeClass}">${i.movementStatus}</span></td>
+        <td class="num">${i.maxDiscountPct}%</td>
+        <td class="num" style="color:var(--primary); font-weight:600;">${i.floorPrice} ج.م</td>
+        <td class="num">${i.stockValue.toLocaleString('en-US', {maximumFractionDigits: 0})} ج.م</td>
+      </tr>
+    `).join('');
+  }
+
+  function renderAuditTable(processed) {
+    const tbody = document.getElementById("auditTableBody");
+    tbody.innerHTML = processed.map(i => {
+      const computedFinal = i.qtyInitial + i.totalIn - i.totalOut;
+      const auditQ = i.auditQty !== null ? i.auditQty : computedFinal;
+      const diff = auditQ - computedFinal;
+      const matchBadge = diff === 0 ? '<span class="badge match">مطابق 100%</span>' : `<span class="badge diff">${diff > 0 ? 'زيادة ' + diff : 'عجز ' + Math.abs(diff)}</span>`;
+      
+      return `
+        <tr>
+          <td><strong>${i.displayName}</strong></td>
+          <td class="num">${i.qtyInitial}</td>
+          <td class="num" style="color:var(--success)">+${i.totalIn}</td>
+          <td class="num" style="color:var(--danger)">-${i.totalOut}</td>
+          <td class="num">${computedFinal}</td>
+          <td class="num"><strong>${auditQ}</strong></td>
+          <td>${i.auditDate}</td>
+          <td class="num"><strong>${diff}</strong></td>
+          <td>${matchBadge}</td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  function renderMovesTable() {
+    const tbody = document.getElementById("movesTableBody");
+    const search = document.getElementById("movesSearchInput").value.toLowerCase();
+    const typeFilter = document.getElementById("moveTypeFilter").value;
+
+    let filtered = state.moves.filter(m => {
+      const pName = String(m.product || "").toLowerCase();
+      const ref = String(m.reference || "").toLowerCase();
+      if (search && !pName.includes(search) && !ref.includes(search)) return false;
+
+      const isCustomerOut = (m.to_loc && (m.to_loc.includes("Virtual") || m.to_loc.includes("Customer") || m.to_loc.includes("عملاء")));
+      const isVendorIn = (m.from_loc && (m.from_loc.includes("Virtual") || m.from_loc.includes("Vendor") || m.from_loc.includes("موردين")));
+      
+      if (typeFilter === 'OUT' && !isCustomerOut) return false;
+      if (typeFilter === 'IN' && !isVendorIn) return false;
+      return true;
+    });
+
+    tbody.innerHTML = filtered.slice(0, 100).map(m => {
+      const isCustomerOut = (m.to_loc && (m.to_loc.includes("Virtual") || m.to_loc.includes("Customer") || m.to_loc.includes("عملاء")));
+      const badge = isCustomerOut ? '<span class="badge out">صرف مبيعات (OUT)</span>' : '<span class="badge in">توريد (IN)</span>';
+      return `
+        <tr>
+          <td><span class="num">${m.date || '-'}</span></td>
+          <td>${m.reference || '-'}</td>
+          <td><strong>${m.product}</strong></td>
+          <td>${m.from_loc || '-'}</td>
+          <td>${m.to_loc || '-'}</td>
+          <td class="num">${m.qty}</td>
+          <td>${m.uom || '-'}</td>
+          <td>${badge}</td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  function renderCharts(processed) {
+    // 1. Doughnut Chart: Movement Status
+    const statusCounts = { 'سريع الدوران': 0, 'دوران طبيعي': 0, 'بطيء الدوران': 0, 'راكد': 0 };
+    processed.forEach(i => { if(statusCounts[i.movementStatus] !== undefined) statusCounts[i.movementStatus]++; });
+
+    const ctx1 = document.getElementById("doughnutChart").getContext("2d");
+    if (doughnutChartInstance) doughnutChartInstance.destroy();
+    doughnutChartInstance = new Chart(ctx1, {
+      type: 'doughnut',
+      data: {
+        labels: Object.keys(statusCounts),
+        datasets: [{ data: Object.values(statusCounts), backgroundColor: ['#16a34a', '#2563eb', '#d97706', '#dc2626'] }]
+      },
+      options: { responsive: true, maintainAspectRatio: false }
+    });
+
+    // 2. Price Class Chart
+    const priceCounts = { 'C-': 0, 'C': 0, 'C+': 0 };
+    processed.forEach(i => { if(priceCounts[i.priceClass] !== undefined) priceCounts[i.priceClass]++; });
+
+    const ctx2 = document.getElementById("priceDoughnutChart").getContext("2d");
+    if (priceDoughnutChartInstance) priceDoughnutChartInstance.destroy();
+    priceDoughnutChartInstance = new Chart(ctx2, {
+      type: 'doughnut',
+      data: {
+        labels: Object.keys(priceCounts),
+        datasets: [{ data: Object.values(priceCounts), backgroundColor: ['#8b5cf6', '#3b82f6', '#10b981'] }]
+      },
+      options: { responsive: true, maintainAspectRatio: false }
+    });
+
+    // 3. Bar Chart: Top Selling Items
+    const sortedBySales = [...processed].sort((a,b) => b.actualSoldQty - a.actualSoldQty).slice(0, 5);
+    const ctx3 = document.getElementById("barChart").getContext("2d");
+    if (barChartInstance) barChartInstance.destroy();
+    barChartInstance = new Chart(ctx3, {
+      type: 'bar',
+      data: {
+        labels: sortedBySales.map(i => i.displayName.length > 15 ? i.displayName.substring(0, 15) + '...' : i.displayName),
+        datasets: [{ label: 'الكمية المباعة', data: sortedBySales.map(i => i.actualSoldQty), backgroundColor: '#2563eb' }]
+      },
+      options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+    });
+  }
+
+  // File Upload Handlers
+  async function handleFileUpload(file, type) {
+    const data = await file.arrayBuffer();
+    const wb = XLSX.read(data, { type: 'array' });
+    const sheetName = wb.SheetNames[0];
+    const json = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
+
+    if (!supabaseClient) throw new Error("يرجى توصيل السحابة أولاً من الإعدادات!");
+
+    if (type === 'moves') {
+      let allMoves = [];
+      const timeStamp = Date.now();
+      json.forEach((r, idx) => {
+        const product = cleanText(getVal(r, ["Product", "المنتج", "الصنف", "اسم المنتج"]));
+        if (!product) return;
+        allMoves.push({
+          id: `${timeStamp}-${idx}`,
+          date: String(getVal(r, ["Date", "التاريخ"]) || ""),
+          reference: String(getVal(r, ["Reference", "المرجع"]) || ""),
+          product: product,
+          from_loc: String(getVal(r, ["From", "من"]) || ""),
+          to_loc: String(getVal(r, ["To", "إلى"]) || ""),
+          qty: Math.abs(Number(getVal(r, ["Quantity", "الكمية"]) || 0)),
+          uom: String(getVal(r, ["Unit of Measure", "وحدة القياس"]) || "")
+        });
+      });
+
+      if (allMoves.length === 0) throw new Error("لم يتم العثور على حركات صالحة داخل الشيت!");
+      setUploadLoading(true, `⏳ رفع ${allMoves.length} حركة مخزنية للسحابة...`);
+      await batchUpsert("stock_moves", allMoves, 300);
+    } else {
+      // General inventory or valuation items
+      let items = [];
+      json.forEach((r) => {
+        const name = cleanText(getVal(r, ["Product", "المنتج", "الصنف", "اسم المنتج", "Description"]));
+        if (!name) return;
+        items.push({
+          name: name,
+          cat: cleanText(getVal(r, ["Category", "الفئة", "التصنيف"])) || "عام",
+          cost: Number(getVal(r, ["Cost", "التكلفة", "سعر التكلفة"])) || 100,
+          price: Number(getVal(r, ["Sales Price", "سعر البيع", "Price"])) || 150,
+          qtyFinal: Number(getVal(r, ["Quantity", "الكمية", "On Hand", "رصيد"])) || 0
+        });
+      });
+      if (items.length === 0) throw new Error("لم يتم العثور على أصناف صالحة في الملف!");
+      setUploadLoading(true, `⏳ رفع ${items.length} صنف للسحابة...`);
+      await batchUpsert("inventory_items", items, 300);
     }
 
-    setUploadLoading(true, "⏳ جاري قراءة وتحليل بيانات Odoo وتطبيق التوريد الذكي (Forward Fill)...");
+    await fetchCloudData();
+    alert("تم رفع الشيت ومعالجته بنجاح!");
+  }
+
+  // Event Listeners for Uploads & Inputs
+  document.querySelectorAll(".upload-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const idMap = {
+        'uploadInvInitialBtn': 'fileInputInvInitial',
+        'uploadInvFinalBtn': 'fileInputInvFinal',
+        'uploadAuditBtn': 'fileInputAudit',
+        'uploadValuationBtn': 'fileInputValuation',
+        'uploadMovesBtn': 'fileInputMoves'
+      };
+      const inputId = idMap[btn.id];
+      if (inputId) {
+        pendingUploadType = btn.id.replace('upload', '').replace('Btn', '').toLowerCase();
+        openPasswordModal();
+      }
+    });
+  });
+
+  document.getElementById("confirmPasswordBtn").addEventListener("click", async () => {
+    const pass = document.getElementById("modalPasswordInput").value;
+    if (pass !== MASTER_PASSWORD) {
+      alert("كلمة السر غير صحيحة!");
+      return;
+    }
+    closePasswordModal();
     
-    const reader = new FileReader();
-    reader.onload = async evt => {
+    const fileInputMap = {
+      'invinitial': 'fileInputInvInitial',
+      'invfinal': 'fileInputInvFinal',
+      'audit': 'fileInputAudit',
+      'valuation': 'fileInputValuation',
+      'moves': 'fileInputMoves'
+    };
+    const targetInputId = fileInputMap[pendingUploadType];
+    if (targetInputId) {
+      document.getElementById(targetInputId).click();
+    }
+  });
+
+  ['fileInputInvInitial', 'fileInputInvFinal', 'fileInputAudit', 'fileInputValuation', 'fileInputMoves'].forEach(inputId => {
+    document.getElementById(inputId).addEventListener("change", async e => {
+      const files = e.target.files;
+      if (!files || !files.length) return;
       try {
-        const data = new Uint8Array(evt.target.result);
-        const wb = XLSX.read(data, { type: 'array' });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const json = XLSX.utils.sheet_to_json(ws, { defval: "" });
-
-        if(!json || json.length === 0) throw new Error("الملف فارغ!");
-
-        // 1. Identify dynamically repeated columns in Odoo export
-        const keys = Object.keys(json[0]);
-        const prodKeys = keys.filter(k => k.toLowerCase().startsWith("products/"));
-        
-        let lastParentName = "";
-        let lastCategory = "";
-        let lastSalesPrice = 0;
-        let lastCost = 0;
-
-        const mapped = [];
-
-        json.forEach((r, idx) => {
-          // Extract core attributes
-          let name = cleanText(getVal(r, ["Display Name", "Name", "اسم الصنف", "المنتج"]));
-          let cat = cleanText(getVal(r, ["Product Category", "Category", "الفئة"]));
-          let price = Number(getVal(r, ["Sales Price", "السعر", "سعر البيع"])) || 0;
-          let totalCost = Number(getVal(r, ["Total Cost", "التكلفة الإجمالية"])) || 0;
-
-          // Check for Parent Row vs Variant Child Row (Odoo Forward Fill)
-          if (name) {
-            lastParentName = name;
-            if (cat) lastCategory = cat;
-            if (price > 0) lastSalesPrice = price;
-            if (totalCost > 0) lastCost = totalCost;
-          } else {
-            name = lastParentName;
-            if (!cat) cat = lastCategory;
-            if (price === 0) price = lastSalesPrice;
-          }
-
-          // Extract Variant Code & Barcode from repeated "Products/..." columns
-          let variantSku = "";
-          let barcode = cleanText(getVal(r, ["Barcode", "الباركود"]));
-
-          prodKeys.forEach(k => {
-            const val = String(r[k]).trim();
-            if (val && !barcode && val.includes("E+")) barcode = val;
-            else if (val && !variantSku && /^\d+$/.test(val)) variantSku = val;
-          });
-
-          const id = String(getVal(r, ["ID"]) || variantSku || barcode || (name ? `${name}-${idx}` : ""));
-          
-          // Quantities & Total Value
-          let stockVal = Number(getVal(r, ["Total Value", "Value", "قيمة المخزون"])) || 0;
-          
-          // Calculate unit cost
-          let unitCost = 0;
-          if (totalCost > 0) unitCost = totalCost;
-          else if (lastCost > 0) unitCost = lastCost;
-
-          // Final Check: skip completely empty rows
-          if (!name && !id) return;
-
-          mapped.push({
-            id: id,
-            barcode: barcode,
-            name: variantSku ? `${name} (${variantSku})` : name,
-            cat: cat || "غير محدد",
-            cost: unitCost,
-            price: price,
-            stockValue: stockVal
-          });
-        });
-
-        if(mapped.length === 0) throw new Error("لم يتم العثور على أصناف صالحة في الشيت!");
-
-        setUploadLoading(true, `⏳ رفع ${mapped.length} صنف منظف (مع توريث الأسماء والتكاليف للمقاسات والألوان)...`);
-        await batchUpsert("inventory", mapped, 200);
-
-        alert(`تم التوثيق والرفع بنجاح! تم حفظ وتوريث بيانات ${mapped.length} صنف.`);
-        fetchCloudData();
+        setUploadLoading(true, "⏳ جاري قراءة الملفات ورفعها...");
+        for (let f of files) {
+          await handleFileUpload(f, inputId === 'fileInputMoves' ? 'moves' : 'inventory');
+        }
       } catch (err) {
-        alert("فشل الرفع: " + err.message);
+        alert("خطأ أثناء الرفع: " + err.message);
       } finally {
         setUploadLoading(false);
         e.target.value = "";
       }
-    };
-
-    reader.readAsArrayBuffer(file);
+    });
   });
 
-  // Handler: Upload Moves
-  document.getElementById("fileInputMoves").addEventListener("change", async e => {
-    const files = e.target.files;
-    if(!files || !files.length) return;
-    
-    let allMoves = [];
-    setUploadLoading(true, "⏳ جاري قراءة وتنظيف ملفات الحركة...");
-
-    try {
-      for (let f = 0; f < files.length; f++) {
-        const file = files[f];
-        const data = await file.arrayBuffer();
-        const wb = XLSX.read(data, { type: 'array' });
-        
-        wb.SheetNames.forEach(sheetName => {
-          const json = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
-          json.forEach((r) => {
-            const product = cleanText(getVal(r, ["Product", "المنتج", "الصنف", "اسم المنتج"]));
-            if (!product) return;
-
-            allMoves.push({
-              id: String(allMoves.length + 1),
-              date: String(getVal(r, ["Date", "التاريخ"]) || ""),
-              reference: String(getVal(r, ["Reference", "المرجع"]) || ""),
-              product: product,
-              from_loc: String(getVal(r, ["From", "من"]) || ""),
-              to_loc: String(getVal(r, ["To", "إلى"]) || ""),
-              qty: Math.abs(Number(getVal(r, ["Quantity", "الكمية"]) || 0)),
-              uom: String(getVal(r, ["Unit of Measure", "وحدة القياس"]) || "")
-            });
-          });
-        });
-      }
-
-      if(allMoves.length === 0) throw new Error("لم يتم العثور على حركات صالحة!");
-
-      setUploadLoading(true, `⏳ رفع ${allMoves.length} حركة مخزنية للسحابة...`);
-      await supabaseClient.from("stock_moves").delete().gte("id", "0");
-      await batchUpsert("stock_moves", allMoves, 300);
-
-      alert("تم رفع شيت الحركة بنجاح!");
-      fetchCloudData();
-    } catch(err) {
-      alert("خطأ الرفع: " + err.message);
-    } finally {
-      setUploadLoading(false);
-      e.target.value = "";
-    }
+  // Filter & Control Listeners
+  document.getElementById("targetMarginInput").addEventListener("input", e => {
+    state.targetMargin = (Number(e.target.value) || 20) / 100;
+    updateDashboard();
   });
+  document.getElementById("priceClassFilter").addEventListener("change", () => updateDashboard());
+  document.getElementById("movementFilter").addEventListener("change", () => updateDashboard());
+  document.getElementById("categoryFilter").addEventListener("change", e => { state.category = e.target.value; updateDashboard(); });
+  document.getElementById("searchInput").addEventListener("input", e => { state.search = e.target.value; updateDashboard(); });
+  document.getElementById("movesSearchInput").addEventListener("input", () => renderMovesTable());
+  document.getElementById("moveTypeFilter").addEventListener("change", () => renderMovesTable());
 
-  // Generic Inventory Handler
-  function handleInventoryUpload(file, fieldName, successMsg) {
-    if(!file) return;
-    setUploadLoading(true, "⏳ جاري المعالجة والرفع...");
-    
-    const reader = new FileReader();
-    reader.onload = async evt => {
-      try {
-        const data = new Uint8Array(evt.target.result);
-        const wb = XLSX.read(data, { type: 'array' });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const json = XLSX.utils.sheet_to_json(ws);
-        
-        const mapped = [];
-        json.forEach((r, idx) => {
-          const name = cleanText(getVal(r, ["Display Name", "Name", "الاسم", "اسم الصنف", "المنتج"]));
-          const barcode = String(getVal(r, ["Barcode", "الباركود", "الكود"]) || "");
-          const id = String(getVal(r, ["ID", "Code", "كود الصنف"]) || barcode || (name ? `item-${idx+1}` : ""));
-
-          if (!name && !id) return;
-
-          let obj = {
-            id: id,
-            barcode: barcode,
-            name: name,
-            cat: cleanText(getVal(r, ["Product Category", "Category", "الفئة"])) || "غير محدد",
-            cost: Number(getVal(r, ["Cost", "Unit Cost", "التكلفة", "تكلفة الوحدة"]) || 0),
-            price: Number(getVal(r, ["Price", "Sales Price", "السعر", "سعر البيع"]) || 0)
-          };
-          
-          if (fieldName === 'qtyInitial') obj.qtyInitial = Number(getVal(r, ["Opening Stock", "رصيد أول المدة", "رصيد اول المدة", "Quantity"]) || 0);
-          if (fieldName === 'qtyFinal') obj.qtyFinal = Number(getVal(r, ["Closing Stock", "رصيد آخر المدة", "رصيد اخر المدة", "Quantity"]) || 0);
-          if (fieldName === 'audit') {
-            obj.auditQty = Number(getVal(r, ["Physical Audit", "الجرد الفعلي", "Quantity"]) || 0);
-            obj.auditDate = String(getVal(r, ["Audit Date", "تاريخ الجرد"]) || new Date().toISOString().split('T')[0]);
-          }
-          mapped.push(obj);
-        });
-
-        await batchUpsert("inventory", mapped, 200);
-        alert(successMsg);
-        fetchCloudData();
-      } catch(err) {
-        alert("خطأ الرفع: " + err.message);
-      } finally {
-        setUploadLoading(false);
-      }
-    };
-    reader.readAsArrayBuffer(file);
-  }
-
-  document.getElementById("fileInputInvInitial").addEventListener("change", e => {
-    handleInventoryUpload(e.target.files[0], 'qtyInitial', "تم رفع رصيد أول المدة بنجاح!");
-  });
-  document.getElementById("fileInputInvFinal").addEventListener("change", e => {
-    handleInventoryUpload(e.target.files[0], 'qtyFinal', "تم رفع رصيد آخر المدة بنجاح!");
-  });
-  document.getElementById("fileInputAudit").addEventListener("change", e => {
-    handleInventoryUpload(e.target.files[0], 'audit', "تم رفع آخر جرد مخزون بنجاح!");
-  });
-
-  function renderCharts(items) {
-    const counts = { 'سريع الدوران': 0, 'دوران طبيعي': 0, 'بطيء الدوران': 0, 'راكد': 0 };
-    items.forEach(i => { if(counts[i.movementStatus] !== undefined) counts[i.movementStatus]++; });
-
-    const ctxDoughnut = document.getElementById('doughnutChart').getContext('2d');
-    if (doughnutChartInstance) doughnutChartInstance.destroy();
-    doughnutChartInstance = new Chart(ctxDoughnut, {
-      type: 'doughnut',
-      data: {
-        labels: ['سريع الدوران', 'دوران طبيعي', 'بطيء الدوران', 'راكد'],
-        datasets: [{
-          data: [counts['سريع الدوران'], counts['دوران طبيعي'], counts['بطيء الدوران'], counts['راكد']],
-          backgroundColor: ['#16a34a', '#2563eb', '#d97706', '#dc2626']
-        }]
-      },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
-    });
-
-    const priceCounts = { 'C-': 0, 'C': 0, 'C+': 0 };
-    items.forEach(i => { if(priceCounts[i.priceClass] !== undefined) priceCounts[i.priceClass]++; });
-
-    const ctxPriceDoughnut = document.getElementById('priceDoughnutChart').getContext('2d');
-    if (priceDoughnutChartInstance) priceDoughnutChartInstance.destroy();
-    priceDoughnutChartInstance = new Chart(ctxPriceDoughnut, {
-      type: 'doughnut',
-      data: {
-        labels: ['فئة C- (أقل)', 'فئة C (متوسط)', 'فئة C+ (أعلى)'],
-        datasets: [{
-          data: [priceCounts['C-'], priceCounts['C'], priceCounts['C+']],
-          backgroundColor: ['#9333ea', '#2563eb', '#16a34a']
-        }]
-      },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
-    });
-
-    const sortedBySales = [...items].sort((a,b) => b.actualSoldQty - a.actualSoldQty).slice(0, 7);
-    const ctxBar = document.getElementById('barChart').getContext('2d');
-    if (barChartInstance) barChartInstance.destroy();
-    barChartInstance = new Chart(ctxBar, {
-      type: 'bar',
-      data: {
-        labels: sortedBySales.map(i => i.displayName.length > 15 ? i.displayName.slice(0, 15) + '...' : i.displayName),
-        datasets: [{
-          label: 'الكميات المباعة',
-          data: sortedBySales.map(i => i.actualSoldQty),
-          backgroundColor: '#2563eb',
-          borderRadius: 6
-        }]
-      },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
-    });
-  }
-
-  function renderSummaryTable(items) {
-    const categoriesMap = {};
-    items.forEach(item => {
-      const catKey = `${item.category || 'غير محدد'} (${item.priceClass})`;
-      if (!categoriesMap[catKey]) {
-        categoriesMap[catKey] = { count: 0, totalValue: 0, totalSold: 0, totalTurnover: 0 };
-      }
-      categoriesMap[catKey].count += 1;
-      categoriesMap[catKey].totalValue += item.stockValue;
-      categoriesMap[catKey].totalSold += item.actualSoldQty;
-      categoriesMap[catKey].totalTurnover += item.turnoverRate;
-    });
-
-    const tbody = document.getElementById("summaryTableBody");
-    tbody.innerHTML = "";
-    Object.keys(categoriesMap).forEach(cat => {
-      const data = categoriesMap[cat];
-      const avgTurnover = (data.totalTurnover / data.count).toFixed(2);
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td><b>${cat}</b></td>
-        <td class="num">${data.count}</td>
-        <td class="num">${data.totalValue.toLocaleString()} ج.م</td>
-        <td class="num" style="color:var(--primary); font-weight:bold;">${data.totalSold.toLocaleString()}</td>
-        <td class="num"><b>${avgTurnover}x</b></td>
-      `;
-      tbody.appendChild(tr);
-    });
-  }
-
-  function renderAuditTable(items) {
-    const tbody = document.getElementById("auditTableBody");
-    tbody.innerHTML = "";
-    items.forEach(i => {
-      const hasAudit = i.auditQty !== null;
-      const diff = hasAudit ? i.auditQty - i.qtyOnHand : 0;
-      const isMatched = hasAudit && diff === 0;
-
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td><b>${i.displayName}</b></td>
-        <td class="num">${i.qtyInitial}</td>
-        <td class="num" style="color:var(--success)">+${i.totalIn}</td>
-        <td class="num" style="color:var(--danger)">-${i.totalOut}</td>
-        <td class="num"><b>${i.qtyOnHand}</b></td>
-        <td class="num">${hasAudit ? i.auditQty : '—'}</td>
-        <td>${i.auditDate}</td>
-        <td class="num" style="font-weight:bold; color:${diff < 0 ? 'var(--danger)' : diff > 0 ? 'var(--success)' : 'inherit'}">
-          ${hasAudit ? (diff > 0 ? '+' + diff : diff) : '—'}
-        </td>
-        <td>
-          ${!hasAudit ? '<span class="badge normal">بانتظار الجرد</span>' : 
-            isMatched ? '<span class="badge match">مطابق 100%</span>' : '<span class="badge diff">فروقات جرد</span>'}
-        </td>
-      `;
-      tbody.appendChild(tr);
-    });
-  }
-
-  function render() {
-    const targetFrac = Number(document.getElementById("targetMarginInput").value) / 100;
-    state.targetMargin = targetFrac;
-
-    const moveSummary = computeSalesAndStockFromMoves(state.moves);
-    let items = state.items.map(i => processItem(i, targetFrac, moveSummary));
-
-    let filteredItems = items.filter(i => {
-      if (state.category && i.category !== state.category) return false;
-      if (state.movement && i.movementStatus !== state.movement) return false;
-      if (state.priceClass && i.priceClass !== state.priceClass) return false;
-      if (state.search) {
-        const s = state.search.toLowerCase();
-        if (!i.displayName.toLowerCase().includes(s) && !i.barcode.toLowerCase().includes(s)) return false;
-      }
-      return true;
-    });
-
-    filteredItems.sort((a,b) => {
-      let av = a[state.sortKey], bv = b[state.sortKey];
-      if(av == null) return 1; if(bv == null) return -1;
-      return (av < bv ? -1 : 1) * state.sortDir;
-    });
-
-    const totalVal = filteredItems.reduce((acc, i) => acc + i.stockValue, 0);
-    const totalSoldQty = filteredItems.reduce((acc, i) => acc + i.actualSoldQty, 0);
-    const avgTurnover = filteredItems.length ? (filteredItems.reduce((acc, i) => acc + i.turnoverRate, 0) / filteredItems.length).toFixed(1) : 0;
-    const deadStock = filteredItems.filter(i => i.movementStatus === 'راكد');
-    const deadVal = deadStock.reduce((acc, i) => acc + i.stockValue, 0);
-
-    document.getElementById("kpiTotalValue").textContent = totalVal.toLocaleString() + " ج.م";
-    document.getElementById("kpiTotalSoldQty").textContent = totalSoldQty.toLocaleString();
-    document.getElementById("kpiMovesCount").textContent = `من واقع ${state.moves.length} حركة مخزنية`;
-    document.getElementById("kpiAvgTurnover").textContent = avgTurnover + "x";
-    document.getElementById("kpiDeadStockVal").textContent = deadVal.toLocaleString() + " ج.م";
-    document.getElementById("kpiDeadStockCount").textContent = `${deadStock.length} أصناف راكدة`;
-
-    renderCharts(filteredItems);
-    renderSummaryTable(filteredItems);
-    renderAuditTable(filteredItems);
-
-    const tbodyInv = document.getElementById("inventoryTableBody");
-    tbodyInv.innerHTML = "";
-    filteredItems.forEach(i => {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td><b>${i.displayName}</b><br><small style="color:var(--text-muted)">${i.barcode}</small></td>
-        <td>${i.category}</td>
-        <td><span class="badge price-class">${i.priceClass}</span></td>
-        <td class="num">${i.qtyOnHand}</td>
-        <td class="num" style="color:var(--primary); font-weight:bold;">${i.actualSoldQty}</td>
-        <td class="num">${i.hasCost ? i.unitCost.toFixed(2) : '<span style="color:red">غائبة</span>'}</td>
-        <td class="num">${i.salesPrice.toFixed(2)}</td>
-        <td class="num"><b>${i.turnoverRate}x</b></td>
-        <td class="num">${i.daysOfInventory > 365 ? '>365 يوم' : i.daysOfInventory + ' يوم'}</td>
-        <td><span class="badge ${i.badgeClass}">${i.movementStatus}</span></td>
-        <td class="num">${i.maxDiscountPct !== null ? (i.maxDiscountPct * 100).toFixed(1) + '%' : '—'}</td>
-        <td class="num">${i.floorPrice !== null ? i.floorPrice.toFixed(2) : '—'}</td>
-        <td class="num">${i.stockValue.toLocaleString()}</td>
-      `;
-      tbodyInv.appendChild(tr);
-    });
-
-    let filteredMoves = state.moves.filter(m => {
-      if (state.movesSearch) {
-        const s = state.movesSearch.toLowerCase();
-        if (!m.product.toLowerCase().includes(s) && !m.reference.toLowerCase().includes(s)) return false;
-      }
-      if (state.moveType === 'OUT' && !(m.to_loc && (m.to_loc.includes("Virtual") || m.to_loc.includes("Customer") || m.to_loc.includes("عملاء")))) return false;
-      if (state.moveType === 'IN' && !(m.from_loc && (m.from_loc.includes("Virtual") || m.from_loc.includes("Vendor") || m.from_loc.includes("موردين")))) return false;
-      return true;
-    });
-
-    const tbodyMoves = document.getElementById("movesTableBody");
-    tbodyMoves.innerHTML = "";
-    filteredMoves.forEach(m => {
-      const isOut = (m.to_loc && (m.to_loc.includes("Virtual") || m.to_loc.includes("Customer") || m.to_loc.includes("عملاء")));
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td class="num">${m.date}</td>
-        <td><b>${m.reference}</b></td>
-        <td>${m.product}</td>
-        <td><small>${m.from_loc}</small></td>
-        <td><small>${m.to_loc}</small></td>
-        <td class="num"><b>${m.qty}</b></td>
-        <td>${m.uom}</td>
-        <td><span class="badge ${isOut ? 'out' : 'in'}">${isOut ? 'صرف مبيعات' : 'توريد / نقل'}</span></td>
-      `;
-      tbodyMoves.appendChild(tr);
-    });
-
-    fillSelect("categoryFilter", [...new Set(state.items.map(i => i.category))], state.category);
-  }
-
-  function fillSelect(id, list, current) {
-    const sel = document.getElementById(id);
-    const first = sel.options[0];
-    sel.innerHTML = ""; sel.appendChild(first);
-    list.filter(Boolean).sort().forEach(v => {
-      const opt = document.createElement("option"); opt.value = v; opt.textContent = v;
-      if (v === current) opt.selected = true;
-      sel.appendChild(opt);
-    });
-  }
-
-  document.getElementById("targetMarginInput").addEventListener("input", render);
-  document.getElementById("categoryFilter").addEventListener("change", e => { state.category = e.target.value; render(); });
-  document.getElementById("movementFilter").addEventListener("change", e => { state.movement = e.target.value; render(); });
-  document.getElementById("priceClassFilter").addEventListener("change", e => { state.priceClass = e.target.value; render(); });
-  document.getElementById("searchInput").addEventListener("input", e => { state.search = e.target.value; render(); });
-  document.getElementById("movesSearchInput").addEventListener("input", e => { state.movesSearch = e.target.value; render(); });
-  document.getElementById("moveTypeFilter").addEventListener("change", e => { state.moveType = e.target.value; render(); });
-
+  // Table Sorting
   document.querySelectorAll("th[data-key]").forEach(th => {
     th.addEventListener("click", () => {
       const key = th.dataset.key;
-      if (state.sortKey === key) state.sortDir *= -1;
-      else { state.sortKey = key; state.sortDir = 1; }
-      render();
+      if (state.sortKey === key) {
+        state.sortDir *= -1;
+      } else {
+        state.sortKey = key;
+        state.sortDir = -1;
+      }
+      updateDashboard();
     });
+  });
+
+  // Modals Management
+  window.openSettingsModal = () => document.getElementById("settingsModal").classList.add("active");
+  window.closeSettingsModal = () => document.getElementById("settingsModal").classList.remove("active");
+
+  window.openPasswordModal = () => {
+    document.getElementById("modalPasswordInput").value = "";
+    document.getElementById("passwordModal").classList.add("active");
+  };
+  window.closePasswordModal = () => document.getElementById("passwordModal").classList.remove("active");
+
+  window.openMasterLockModal = (target) => {
+    activeUnlockTarget = target;
+    document.getElementById("masterPasswordInput").value = "";
+    document.getElementById("masterLockModal").classList.add("active");
+  };
+  window.closeMasterLockModal = () => document.getElementById("masterLockModal").classList.remove("active");
+
+  document.getElementById("unlockCloudBtn").addEventListener("click", () => openMasterLockModal('cloud'));
+  document.getElementById("unlockPriceLimitsBtn").addEventListener("click", () => openMasterLockModal('price'));
+
+  document.getElementById("confirmMasterPasswordBtn").addEventListener("click", () => {
+    const pass = document.getElementById("masterPasswordInput").value;
+    if (pass !== MASTER_PASSWORD) {
+      alert("كلمة السر الرئيسية غير صحيحة!");
+      return;
+    }
+    closeMasterLockModal();
+    if (activeUnlockTarget === 'cloud') {
+      document.getElementById("protectedCloudSection").classList.remove("hidden");
+      document.getElementById("unlockCloudBtn").classList.add("hidden");
+    } else if (activeUnlockTarget === 'price') {
+      document.getElementById("protectedPriceSection").classList.remove("hidden");
+      document.getElementById("unlockPriceLimitsBtn").classList.add("hidden");
+    }
+  });
+
+  document.getElementById("connectBtn").addEventListener("click", async () => {
+    await initSupabase();
+  });
+
+  document.getElementById("savePriceLimitsBtn").addEventListener("click", () => {
+    priceConfig.limitCMinus = Number(document.getElementById("ruleCMinusMax").value) || 300;
+    priceConfig.limitCMid = Number(document.getElementById("ruleCMax").value) || 550;
+    localStorage.setItem("limit_c_minus", priceConfig.limitCMinus);
+    localStorage.setItem("limit_c_mid", priceConfig.limitCMid);
+    alert("تم حفظ قواعد الفئات السعرية بنجاح!");
+    updateDashboard();
+  });
+
+  // Initial connection on load
+  window.addEventListener("DOMContentLoaded", async () => {
+    syncPriceRuleInputs();
+    await initSupabase();
   });
 
 })();
