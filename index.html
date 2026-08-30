@@ -152,7 +152,6 @@
   .rule-edit-row label { font-weight: 600; min-width: 55px; }
   .rule-edit-row input { width: 100px; }
 
-  /* Progress Banner */
   #uploadProgressBanner {
     display: none; background: #eff6ff; border: 1px solid #93c5fd; color: #1e40af;
     padding: 12px 16px; border-radius: 8px; font-weight: 600; margin-bottom: 12px; font-size: 13.5px;
@@ -442,9 +441,8 @@
         <button class="btn secondary upload-btn" id="uploadInvInitialBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت رصيد أول المدة</button>
         <button class="btn secondary upload-btn" id="uploadInvFinalBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت رصيد آخر المدة</button>
         <button class="btn secondary upload-btn" id="uploadAuditBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت آخر جرد مخزون</button>
-        <button class="btn secondary upload-btn" id="uploadValuationBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت آخر تقييم للمخزون</button>
+        <button class="btn secondary upload-btn" id="uploadValuationBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت آخر تقييم للمخزون (Odoo Valuation)</button>
         <button class="btn secondary upload-btn" id="uploadMovesBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت الحركة</button>
-        <button class="btn secondary" id="exportBtn">تصدير قائمة العروض والخصومات (Excel)</button>
       </div>
       <input type="file" id="fileInputInvInitial" accept=".xlsx, .xls, .csv">
       <input type="file" id="fileInputInvFinal" accept=".xlsx, .xls, .csv">
@@ -532,6 +530,15 @@
     return String(str).trim().replace(/\s+/g, ' ');
   }
 
+  function getVal(row, keys) {
+    for (let k of keys) {
+      if (row[k] !== undefined && row[k] !== null && String(row[k]).trim() !== "") {
+        return row[k];
+      }
+    }
+    return null;
+  }
+
   function setUploadLoading(isLoading, msg = "") {
     const banner = document.getElementById("uploadProgressBanner");
     const btns = document.querySelectorAll(".upload-btn");
@@ -587,7 +594,7 @@
 
   function processItem(item, targetMargin, moveSummary) {
     const displayName = cleanText(item.name);
-    const category = cleanText(item.cat);
+    const category = cleanText(item.cat) || "غير محدد";
     const unitCost = Number(item.cost) || 0;
     const salesPrice = Number(item.price) || 0;
     
@@ -602,11 +609,11 @@
 
     const actualSoldQty = movesData.totalOut || Number(item.soldYr) || 0;
 
-    const auditQty = Number(item.auditQty) || null;
+    const auditQty = item.auditQty !== undefined && item.auditQty !== null ? Number(item.auditQty) : null;
     const auditDate = item.auditDate || 'غير مجرود';
 
     const priceClass = getPriceClass(salesPrice);
-    const stockValue = unitCost * qtyOnHand;
+    const stockValue = Number(item.stockValue) || (unitCost * qtyOnHand);
     const avgInv = qtyOnHand > 0 ? qtyOnHand : 1;
     const turnoverRate = Number((actualSoldQty / avgInv).toFixed(2));
     const daysOfInventory = turnoverRate > 0 ? Math.round(365 / turnoverRate) : 999;
@@ -780,7 +787,6 @@
   document.getElementById("uploadValuationBtn").addEventListener("click", () => checkAdminAndTrigger('valuation'));
   document.getElementById("uploadMovesBtn").addEventListener("click", () => checkAdminAndTrigger('moves'));
 
-  // Batch Upsert for large files
   async function batchUpsert(table, items, chunkSize = 200) {
     for (let i = 0; i < items.length; i += chunkSize) {
       const chunk = items.slice(i, i + chunkSize);
@@ -790,7 +796,7 @@
     }
   }
 
-  // Handler: Upload Valuation Sheet
+  // Smart Odoo Valuation Parser with Forward-Fill Hierarchy
   document.getElementById("fileInputValuation").addEventListener("change", async e => {
     const file = e.target.files[0];
     if(!file) return;
@@ -800,7 +806,7 @@
       return;
     }
 
-    setUploadLoading(true, "⏳ جاري قراءة وتحليل شيت تقييم المخزون...");
+    setUploadLoading(true, "⏳ جاري قراءة وتحليل بيانات Odoo وتطبيق التوريد الذكي (Forward Fill)...");
     
     const reader = new FileReader();
     reader.onload = async evt => {
@@ -808,26 +814,80 @@
         const data = new Uint8Array(evt.target.result);
         const wb = XLSX.read(data, { type: 'array' });
         const ws = wb.Sheets[wb.SheetNames[0]];
-        const json = XLSX.utils.sheet_to_json(ws);
+        const json = XLSX.utils.sheet_to_json(ws, { defval: "" });
 
-        if(!json || json.length === 0) {
-          throw new Error("الشيت فارغ أو غير مطابق للهيكلة المطلوب قراءتها!");
-        }
+        if(!json || json.length === 0) throw new Error("الملف فارغ!");
 
-        const mapped = json.map((r, idx) => ({
-          id: String(r["ID"] || r["Code"] || r["كود الصنف"] || idx + 1),
-          barcode: String(r["Barcode"] || r["الباركود"] || ""),
-          name: cleanText(r["Display Name"] || r["Name"] || r["الاسم"] || r["اسم الصنف"] || ""),
-          cat: cleanText(r["Product Category"] || r["الفئة"] || "غير محدد"),
-          cost: Number(r["Cost"] || r["التكلفة"] || r["Unit Cost"] || r["تكلفة الوحدة"] || 0),
-          price: Number(r["Price"] || r["السعر"] || r["Sales Price"] || r["سعر البيع"] || 0),
-          stockValue: Number(r["Total Value"] || r["قيمة المخزون"] || r["إجمالي التكلفة"] || 0)
-        }));
+        // 1. Identify dynamically repeated columns in Odoo export
+        const keys = Object.keys(json[0]);
+        const prodKeys = keys.filter(k => k.toLowerCase().startsWith("products/"));
+        
+        let lastParentName = "";
+        let lastCategory = "";
+        let lastSalesPrice = 0;
+        let lastCost = 0;
 
-        setUploadLoading(true, `⏳ جاري إرسال ${mapped.length} صنف إلى قاعدة البيانات السحابية...`);
+        const mapped = [];
+
+        json.forEach((r, idx) => {
+          // Extract core attributes
+          let name = cleanText(getVal(r, ["Display Name", "Name", "اسم الصنف", "المنتج"]));
+          let cat = cleanText(getVal(r, ["Product Category", "Category", "الفئة"]));
+          let price = Number(getVal(r, ["Sales Price", "السعر", "سعر البيع"])) || 0;
+          let totalCost = Number(getVal(r, ["Total Cost", "التكلفة الإجمالية"])) || 0;
+
+          // Check for Parent Row vs Variant Child Row (Odoo Forward Fill)
+          if (name) {
+            lastParentName = name;
+            if (cat) lastCategory = cat;
+            if (price > 0) lastSalesPrice = price;
+            if (totalCost > 0) lastCost = totalCost;
+          } else {
+            name = lastParentName;
+            if (!cat) cat = lastCategory;
+            if (price === 0) price = lastSalesPrice;
+          }
+
+          // Extract Variant Code & Barcode from repeated "Products/..." columns
+          let variantSku = "";
+          let barcode = cleanText(getVal(r, ["Barcode", "الباركود"]));
+
+          prodKeys.forEach(k => {
+            const val = String(r[k]).trim();
+            if (val && !barcode && val.includes("E+")) barcode = val;
+            else if (val && !variantSku && /^\d+$/.test(val)) variantSku = val;
+          });
+
+          const id = String(getVal(r, ["ID"]) || variantSku || barcode || (name ? `${name}-${idx}` : ""));
+          
+          // Quantities & Total Value
+          let stockVal = Number(getVal(r, ["Total Value", "Value", "قيمة المخزون"])) || 0;
+          
+          // Calculate unit cost
+          let unitCost = 0;
+          if (totalCost > 0) unitCost = totalCost;
+          else if (lastCost > 0) unitCost = lastCost;
+
+          // Final Check: skip completely empty rows
+          if (!name && !id) return;
+
+          mapped.push({
+            id: id,
+            barcode: barcode,
+            name: variantSku ? `${name} (${variantSku})` : name,
+            cat: cat || "غير محدد",
+            cost: unitCost,
+            price: price,
+            stockValue: stockVal
+          });
+        });
+
+        if(mapped.length === 0) throw new Error("لم يتم العثور على أصناف صالحة في الشيت!");
+
+        setUploadLoading(true, `⏳ رفع ${mapped.length} صنف منظف (مع توريث الأسماء والتكاليف للمقاسات والألوان)...`);
         await batchUpsert("inventory", mapped, 200);
 
-        alert("تم رفع وترحيل شيت تقييم المخزون بنجاح!");
+        alert(`تم التوثيق والرفع بنجاح! تم حفظ وتوريث بيانات ${mapped.length} صنف.`);
         fetchCloudData();
       } catch (err) {
         alert("فشل الرفع: " + err.message);
@@ -835,12 +895,6 @@
         setUploadLoading(false);
         e.target.value = "";
       }
-    };
-
-    reader.onerror = () => {
-      alert("تعذر قراءة الملف! يرجى التأكد من سلامة ملف Excel.");
-      setUploadLoading(false);
-      e.target.value = "";
     };
 
     reader.readAsArrayBuffer(file);
@@ -863,21 +917,24 @@
         wb.SheetNames.forEach(sheetName => {
           const json = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
           json.forEach((r) => {
+            const product = cleanText(getVal(r, ["Product", "المنتج", "الصنف", "اسم المنتج"]));
+            if (!product) return;
+
             allMoves.push({
               id: String(allMoves.length + 1),
-              date: String(r["Date"] || r["التاريخ"] || ""),
-              reference: String(r["Reference"] || r["المرجع"] || ""),
-              product: cleanText(r["Product"] || r["المنتج"] || ""),
-              from_loc: String(r["From"] || r["من"] || ""),
-              to_loc: String(r["To"] || r["إلى"] || ""),
-              qty: Math.abs(Number(r["Quantity"] || r["الكمية"] || 0)),
-              uom: String(r["Unit of Measure"] || r["وحدة القياس"] || "")
+              date: String(getVal(r, ["Date", "التاريخ"]) || ""),
+              reference: String(getVal(r, ["Reference", "المرجع"]) || ""),
+              product: product,
+              from_loc: String(getVal(r, ["From", "من"]) || ""),
+              to_loc: String(getVal(r, ["To", "إلى"]) || ""),
+              qty: Math.abs(Number(getVal(r, ["Quantity", "الكمية"]) || 0)),
+              uom: String(getVal(r, ["Unit of Measure", "وحدة القياس"]) || "")
             });
           });
         });
       }
 
-      if(allMoves.length === 0) throw new Error("لم يتم العثور على بيانات حركات داخل الملفات المحددة!");
+      if(allMoves.length === 0) throw new Error("لم يتم العثور على حركات صالحة!");
 
       setUploadLoading(true, `⏳ رفع ${allMoves.length} حركة مخزنية للسحابة...`);
       await supabaseClient.from("stock_moves").delete().gte("id", "0");
@@ -906,22 +963,30 @@
         const ws = wb.Sheets[wb.SheetNames[0]];
         const json = XLSX.utils.sheet_to_json(ws);
         
-        const mapped = json.map((r, idx) => {
+        const mapped = [];
+        json.forEach((r, idx) => {
+          const name = cleanText(getVal(r, ["Display Name", "Name", "الاسم", "اسم الصنف", "المنتج"]));
+          const barcode = String(getVal(r, ["Barcode", "الباركود", "الكود"]) || "");
+          const id = String(getVal(r, ["ID", "Code", "كود الصنف"]) || barcode || (name ? `item-${idx+1}` : ""));
+
+          if (!name && !id) return;
+
           let obj = {
-            id: String(r["ID"] || r["Code"] || idx + 1),
-            barcode: String(r["Barcode"] || r["الباركود"] || ""),
-            name: cleanText(r["Display Name"] || r["Name"] || r["الاسم"] || ""),
-            cat: cleanText(r["Product Category"] || r["الفئة"] || "غير محدد"),
-            cost: Number(r["Cost"] || r["التكلفة"] || r["Unit Cost"] || 0),
-            price: Number(r["Price"] || r["السعر"] || r["Sales Price"] || 0)
+            id: id,
+            barcode: barcode,
+            name: name,
+            cat: cleanText(getVal(r, ["Product Category", "Category", "الفئة"])) || "غير محدد",
+            cost: Number(getVal(r, ["Cost", "Unit Cost", "التكلفة", "تكلفة الوحدة"]) || 0),
+            price: Number(getVal(r, ["Price", "Sales Price", "السعر", "سعر البيع"]) || 0)
           };
-          if (fieldName === 'qtyInitial') obj.qtyInitial = Number(r["Opening Stock"] || r["رصيد أول المدة"] || r["رصيد اول المدة"] || r["Quantity"] || 0);
-          if (fieldName === 'qtyFinal') obj.qtyFinal = Number(r["Closing Stock"] || r["رصيد آخر المدة"] || r["رصيد اخر المدة"] || r["Quantity"] || 0);
+          
+          if (fieldName === 'qtyInitial') obj.qtyInitial = Number(getVal(r, ["Opening Stock", "رصيد أول المدة", "رصيد اول المدة", "Quantity"]) || 0);
+          if (fieldName === 'qtyFinal') obj.qtyFinal = Number(getVal(r, ["Closing Stock", "رصيد آخر المدة", "رصيد اخر المدة", "Quantity"]) || 0);
           if (fieldName === 'audit') {
-            obj.auditQty = Number(r["Physical Audit"] || r["الجرد الفعلي"] || r["Quantity"] || 0);
-            obj.auditDate = String(r["Audit Date"] || r["تاريخ الجرد"] || new Date().toISOString().split('T')[0]);
+            obj.auditQty = Number(getVal(r, ["Physical Audit", "الجرد الفعلي", "Quantity"]) || 0);
+            obj.auditDate = String(getVal(r, ["Audit Date", "تاريخ الجرد"]) || new Date().toISOString().split('T')[0]);
           }
-          return obj;
+          mapped.push(obj);
         });
 
         await batchUpsert("inventory", mapped, 200);
