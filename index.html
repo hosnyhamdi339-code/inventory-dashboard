@@ -1,1133 +1,1189 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8">
-<title>نظام تحليل المخزون والحركات الزمني - Dashboard</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Inter:wght@400;600;700&display=swap">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<style>
-  :root {
-    --bg-page: #f8fafc;
-    --bg-surface: #ffffff;
-    --bg-subtle: #f1f5f9;
-    --border: #e2e8f0;
-    --text-main: #0f172a;
-    --text-muted: #64748b;
-    --primary: #2563eb;
-    --primary-light: #eff6ff;
-    --success: #16a34a;
-    --success-light: #f0fdf4;
-    --warning: #d97706;
-    --warning-light: #fffbeb;
-    --danger: #dc2626;
-    --danger-light: #fef2f2;
-    --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-  }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>لوحة التحكم الاحترافية لإدارة وتقييم المخزون</title>
 
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; padding: 24px;
-    background: var(--bg-page); color: var(--text-main);
-    font-family: "IBM Plex Sans Arabic", system-ui, sans-serif;
-    line-height: 1.5;
-  }
-  .num { font-family: "Inter", sans-serif; direction: ltr; display: inline-block; }
+  <!-- External Libraries: Tailwind CSS, Chart.js, XLSX, Supabase -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-  .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 16px; }
-  .header h1 { margin: 0; font-size: 24px; font-weight: 700; color: var(--text-main); }
-  .header p { margin: 4px 0 0; color: var(--text-muted); font-size: 14px; }
+  <!-- Google Fonts: Cairo & Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-  .actions-group { display: flex; gap: 12px; align-items: center; }
-  .btn {
-    background: var(--primary); color: #fff; border: none; padding: 9px 16px;
-    border-radius: 8px; font-weight: 600; font-size: 13.5px; cursor: pointer;
-    display: inline-flex; align-items: center; justify-content: center; gap: 6px; transition: 0.2s; width: 100%;
-  }
-  .btn:hover { opacity: 0.9; }
-  .btn:disabled { background: #94a3b8; cursor: not-allowed; }
-  .btn.secondary { background: var(--bg-surface); color: var(--text-main); border: 1px solid var(--border); }
-  .btn.secondary:hover { background: var(--bg-subtle); }
-  .btn.settings-btn { background: #0f172a; color: #fff; width: auto; padding: 10px 20px; font-size: 14px; }
-  .btn.lock-btn { background: #475569; color: #fff; }
-  #fileInputInvInitial, #fileInputInvFinal, #fileInputAudit, #fileInputValuation, #fileInputMoves { display: none; }
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --bg-main: #f8fafc;
+      --card-bg: #ffffff;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --border-color: #e2e8f0;
+      --danger: #dc2626;
+      --warning: #d97706;
+      --success: #16a34a;
+    }
 
-  .sync-indicator {
-    display: inline-flex; align-items: center; gap: 6px; font-size: 13px;
-    padding: 8px 14px; border-radius: 20px; background: var(--bg-surface); color: var(--text-muted);
-    border: 1px solid var(--border); box-shadow: var(--shadow);
-  }
-  .sync-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warning); }
-  .sync-indicator.connected .sync-dot { background: var(--success); }
-  .sync-indicator.error .sync-dot { background: var(--danger); }
+    body {
+      font-family: 'Cairo', 'Inter', sans-serif;
+      background-color: var(--bg-main);
+      color: var(--text-main);
+      margin: 0;
+      padding: 0;
+      -webkit-font-smoothing: antialiased;
+    }
 
-  /* Tabs */
-  .tabs { display: flex; gap: 12px; border-bottom: 2px solid var(--border); margin-bottom: 24px; }
-  .tab-btn {
-    padding: 10px 20px; font-size: 15px; font-weight: 600; color: var(--text-muted);
-    background: none; border: none; border-bottom: 3px solid transparent; cursor: pointer; transition: 0.2s;
-  }
-  .tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
+    .num {
+      font-family: 'Inter', sans-serif;
+      direction: ltr;
+      display: inline-block;
+    }
 
-  /* KPIs */
-  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
-  .kpi-card {
-    background: var(--bg-surface); border: 1px solid var(--border);
-    padding: 18px; border-radius: 12px; box-shadow: var(--shadow);
-  }
-  .kpi-title { font-size: 13px; color: var(--text-muted); margin-bottom: 8px; font-weight: 500; }
-  .kpi-value { font-size: 24px; font-weight: 700; color: var(--text-main); }
-  .kpi-sub { font-size: 12px; margin-top: 6px; }
+    .nav-btn.active {
+      background-color: var(--primary);
+      color: white;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
+    }
 
-  /* Charts Section */
-  .charts-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 24px; }
-  @media(max-width: 1024px){ .charts-grid { grid-template-columns: 1fr; } }
-  .chart-card {
-    background: var(--bg-surface); border: 1px solid var(--border);
-    border-radius: 12px; padding: 16px; box-shadow: var(--shadow); display: flex; flex-direction: column;
-  }
-  .chart-card h3 { margin: 0 0 16px; font-size: 15px; font-weight: 700; color: var(--text-main); }
-  .chart-container { position: relative; flex: 1; min-height: 220px; }
+    .tab-content {
+      display: none;
+    }
+    .tab-content.active {
+      display: block;
+    }
 
-  .section-title { font-size: 16px; font-weight: 700; margin: 24px 0 12px; color: var(--text-main); display: flex; align-items: center; gap: 8px; }
+    .modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background-color: rgba(15, 23, 42, 0.6);
+      backdrop-filter: blur(4px);
+      z-index: 50;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal.active {
+      display: flex;
+    }
 
-  .panel {
-    background: var(--bg-surface); border: 1px solid var(--border);
-    padding: 20px; border-radius: 12px; box-shadow: var(--shadow); margin-bottom: 24px;
-  }
-  .controls-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; align-items: flex-end; }
-  .form-group { display: flex; flex-direction: column; gap: 6px; }
-  .form-group label { font-size: 13px; font-weight: 600; color: var(--text-muted); }
-  select, input[type="text"], input[type="number"], input[type="password"], input[type="date"] {
-    padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px;
-    font-family: inherit; font-size: 14px; background: var(--bg-surface); color: var(--text-main);
-  }
+    .badge {
+      padding: 0.25rem 0.625rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      display: inline-block;
+    }
+    .badge.fast { background-color: #dcfce7; color: #15803d; }
+    .badge.normal { background-color: #dbeafe; color: #1e40af; }
+    .badge.slow { background-color: #fef3c7; color: #b45309; }
+    .badge.dead { background-color: #fee2e2; color: #b91c1c; }
+    .badge.price-class { background-color: #f3e8ff; color: #7e22ce; }
+    .badge.match { background-color: #dcfce7; color: #15803d; }
+    .badge.diff { background-color: #fee2e2; color: #b91c1c; }
+    .badge.in { background-color: #dcfce7; color: #15803d; }
+    .badge.out { background-color: #fee2e2; color: #b91c1c; }
 
-  /* Tables */
-  .table-container { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-surface); margin-bottom: 24px; box-shadow: var(--shadow); }
-  table { width: 100%; border-collapse: collapse; text-align: right; font-size: 13.5px; }
-  th, td { padding: 12px 14px; border-bottom: 1px solid var(--border); white-space: nowrap; }
-  th { background: var(--bg-subtle); color: var(--text-muted); font-weight: 600; cursor: pointer; user-select: none; }
-  th:hover { color: var(--text-main); }
-  tr:hover { background: var(--bg-subtle); }
+    .loader {
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid var(--primary);
+      border-radius: 50%;
+      width: 24px;
+      height: 24px;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
 
-  /* Badges */
-  .badge { padding: 4px 8px; border-radius: 6px; font-size: 11.5px; font-weight: 600; display: inline-block; }
-  .badge.fast { background: var(--success-light); color: var(--success); }
-  .badge.normal { background: var(--primary-light); color: var(--primary); }
-  .badge.slow { background: var(--warning-light); color: var(--warning); }
-  .badge.dead { background: var(--danger-light); color: var(--danger); }
-  .badge.out { background: #e0e7ff; color: #4338ca; }
-  .badge.in { background: var(--success-light); color: var(--success); }
-  .badge.price-class { background: #f3e8ff; color: #6b21a8; border: 1px solid #d8b4fe; }
-  .badge.match { background: var(--success-light); color: var(--success); }
-  .badge.diff { background: var(--danger-light); color: var(--danger); }
-
-  /* Modals */
-  .modal-overlay {
-    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(15, 23, 42, 0.6); display: none; align-items: center; justify-content: center; z-index: 1000;
-  }
-  .modal-overlay.active { display: flex; }
-  .modal {
-    background: #fff; border-radius: 12px; padding: 24px; width: 100%; max-width: 580px;
-    box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1); max-height: 90vh; overflow-y: auto;
-  }
-  .modal h3 { margin: 0 0 8px; font-size: 18px; }
-  .modal p { color: var(--text-muted); font-size: 13.5px; margin-bottom: 16px; }
-  .modal-section { border-top: 1px solid var(--border); padding-top: 16px; margin-top: 16px; }
-  .modal-section-title { font-size: 14px; font-weight: 700; margin-bottom: 12px; color: var(--text-main); }
-  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
-
-  .tab-content { display: none; }
-  .tab-content.active { display: block; }
-  .hidden { display: none !important; }
-
-  .rule-edit-row {
-    display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
-    background: var(--bg-subtle); padding: 10px; border-radius: 8px;
-  }
-  .rule-edit-row label { font-weight: 600; min-width: 55px; }
-  .rule-edit-row input { width: 100px; }
-
-  #uploadProgressBanner {
-    display: none; background: #eff6ff; border: 1px solid #93c5fd; color: #1e40af;
-    padding: 12px 16px; border-radius: 8px; font-weight: 600; margin-bottom: 12px; font-size: 13.5px;
-  }
-</style>
+    /* Table custom scrollbar */
+    .table-container::-webkit-scrollbar {
+      height: 8px;
+      width: 8px;
+    }
+    .table-container::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 4px;
+    }
+    .table-container::-webkit-scrollbar-track {
+      background: #f1f5f9;
+    }
+  </style>
 </head>
-<body>
+<body class="min-h-screen flex flex-col">
 
-<div class="header">
-  <div>
-    <h1>نظام تحليل المخزون والحركات الزمني (سحابي)</h1>
-    <p>تحليل دقيق للأرصدة، الجرد الفعلي، والدوران مع تنظيف البيانات التلقائي</p>
-  </div>
-  <div class="actions-group">
-    <div class="sync-indicator" id="syncStatus">
-      <span class="sync-dot"></span>
-      <span id="syncText">بانتظار ضبط الاتصال...</span>
-    </div>
-    <button class="btn settings-btn" onclick="openSettingsModal()">الإعدادات والعمليات ⚙️</button>
-  </div>
-</div>
+  <!-- Header -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="bg-blue-600 text-white p-2 rounded-xl shadow-md">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+        </div>
+        <div>
+          <h1 class="text-lg font-bold text-slate-900 leading-tight">نظام إدارة وتحليل المخزون</h1>
+          <p class="text-xs text-slate-500">التحليل المالي، الفئات السعرية والجرد</p>
+        </div>
+      </div>
 
-<div class="tabs">
-  <button class="tab-btn active" data-tab="tab-inventory">التحليل الرئيسي للمخزون والتسعير</button>
-  <button class="tab-btn" data-tab="tab-audit">مطابقة الأرصدة والجرد الفعلي 🔍</button>
-  <button class="tab-btn" data-tab="tab-moves">سجل حركة المخزون الزمني (Stock Moves)</button>
-</div>
+      <!-- Navigation Tabs -->
+      <nav class="flex items-center bg-slate-100 p-1 rounded-xl gap-1">
+        <button onclick="switchTab('dashboard')" id="nav-dashboard" class="nav-btn active px-4 py-2 rounded-lg text-xs md:text-sm font-semibold transition-all">الرئيسية والتحليلات</button>
+        <button onclick="switchTab('inventory')" id="nav-inventory" class="nav-btn px-4 py-2 rounded-lg text-xs md:text-sm font-semibold transition-all">جدول المخزون</button>
+        <button onclick="switchTab('audit')" id="nav-audit" class="nav-btn px-4 py-2 rounded-lg text-xs md:text-sm font-semibold transition-all">مطابقة الجرد</button>
+        <button onclick="switchTab('moves')" id="nav-moves" class="nav-btn px-4 py-2 rounded-lg text-xs md:text-sm font-semibold transition-all">سجل الحركات</button>
+      </nav>
 
-<!-- TAB 1: INVENTORY ANALYSIS -->
-<div id="tab-inventory" class="tab-content active">
-  <div class="kpi-grid">
-    <div class="kpi-card">
-      <div class="kpi-title">إجمالي قيمة المخزون (التكلفة)</div>
-      <div class="kpi-value num" id="kpiTotalValue">0</div>
-      <div class="kpi-sub" style="color: var(--text-muted);">رأس المال المستثمر بالمخزن</div>
+      <!-- Action Buttons -->
+      <div class="flex items-center gap-2">
+        <button onclick="openSettingsModal()" class="p-2 text-slate-600 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition-all" title="الإعدادات والقواعد">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+        </button>
+      </div>
     </div>
-    <div class="kpi-card">
-      <div class="kpi-title">إجمالي الكميات المباعة (من شيت الحركة)</div>
-      <div class="kpi-value num" id="kpiTotalSoldQty">0</div>
-      <div class="kpi-sub" style="color: var(--primary);" id="kpiMovesCount">من واقع 0 حركة مبيعات</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-title">متوسط معدل دوران المخزون (فعلي)</div>
-      <div class="kpi-value num" id="kpiAvgTurnover">0.0x</div>
-      <div class="kpi-sub" style="color: var(--success);">محسوب بناءً على المبيعات الحقيقية</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-title">قيمة البضاعة الراكدة (Dead Stock)</div>
-      <div class="kpi-value num" id="kpiDeadStockVal" style="color: var(--danger);">0</div>
-      <div class="kpi-sub" style="color: var(--danger);" id="kpiDeadStockCount">0 أصناف</div>
+  </header>
+
+  <!-- Upload Loading Bar Overlay -->
+  <div id="uploadLoader" class="hidden bg-blue-50 border-b border-blue-200 p-3 px-8 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="loader"></div>
+      <span id="uploadStatusText" class="text-sm font-semibold text-blue-800">جاري معالجة البيانات...</span>
     </div>
   </div>
 
-  <div class="charts-grid">
-    <div class="chart-card">
-      <h3>توزيع حالة حركة المخزون</h3>
-      <div class="chart-container">
-        <canvas id="doughnutChart"></canvas>
+  <!-- Main Content Container -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+    <!-- Global Controls & Quick Uploads Bar -->
+    <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-4">
+      <!-- Dynamic Target Margin Input -->
+      <div class="flex items-center gap-3 bg-slate-50 p-2 px-3 rounded-xl border border-slate-200">
+        <label for="targetMarginInput" class="text-xs font-bold text-slate-700">هامش الربح المستهدف (%):</label>
+        <input type="number" id="targetMarginInput" value="40" min="0" max="100" class="w-16 p-1 border border-slate-300 rounded text-center text-xs font-bold focus:ring-2 focus:ring-blue-500 outline-none">
+      </div>
+
+      <!-- Quick Upload Buttons (Protected by Password) -->
+      <div class="flex flex-wrap items-center gap-2">
+        <button id="uploadInvInitialBtn" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2 px-3 rounded-xl transition-all flex items-center gap-1">
+          📥 رصيد أول المدة
+        </button>
+        <button id="uploadInvFinalBtn" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2 px-3 rounded-xl transition-all flex items-center gap-1">
+          📥 رصيد آخر المدة
+        </button>
+        <button id="uploadAuditBtn" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2 px-3 rounded-xl transition-all flex items-center gap-1">
+          📋 جرد فعلي
+        </button>
+        <button id="uploadValuationBtn" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2 px-3 rounded-xl transition-all flex items-center gap-1">
+          💰 تكاليف وأسعار
+        </button>
+        <button id="uploadMovesBtn" class="bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold py-2 px-3 rounded-xl border border-blue-200 transition-all flex items-center gap-1">
+          🔄 رفع حركات المخزون
+        </button>
       </div>
     </div>
-    <div class="chart-card">
-      <h3>مقارنة الفئات السعرية (C- | C | C+) 🏷️</h3>
-      <div class="chart-container">
-        <canvas id="priceDoughnutChart"></canvas>
-      </div>
-    </div>
-    <div class="chart-card">
-      <h3>أعلى الأصناف مبيعاً (من واقع حركة المخزون)</h3>
-      <div class="chart-container">
-        <canvas id="barChart"></canvas>
-      </div>
-    </div>
-  </div>
 
-  <div class="section-title">📊 ملخص الأداء المالي والحركي حسب الفئة والتصنيف السعري</div>
-  <div class="table-container">
-    <table>
-      <thead>
-        <tr>
-          <th>الفئة (التصنيف)</th>
-          <th class="num">عدد الأصناف</th>
-          <th class="num">إجمالي قيمة المخزون</th>
-          <th class="num">إجمالي المبيعات الفعلية</th>
-          <th class="num">متوسط معدل الدوران</th>
-        </tr>
-      </thead>
-      <tbody id="summaryTableBody"></tbody>
-    </table>
-  </div>
+    <!-- Hidden Inputs for File Uploads -->
+    <input type="file" id="fileInputInvInitial" accept=".xlsx, .xls, .csv" class="hidden">
+    <input type="file" id="fileInputInvFinal" accept=".xlsx, .xls, .csv" class="hidden">
+    <input type="file" id="fileInputAudit" accept=".xlsx, .xls, .csv" class="hidden">
+    <input type="file" id="fileInputValuation" accept=".xlsx, .xls, .csv" class="hidden">
+    <input type="file" id="fileInputMoves" accept=".xlsx, .xls, .csv" multiple class="hidden">
 
-  <div class="section-title">🔍 تفاصيل الأصناف والتصفيات</div>
-  <div class="panel">
-    <div class="controls-grid">
-      <div class="form-group">
-        <label>الهامش المستهدف (%)</label>
-        <input type="number" id="targetMarginInput" value="20" min="0" max="80">
-      </div>
-      <div class="form-group">
-        <label>التصنيف السعري</label>
-        <select id="priceClassFilter">
-          <option value="">جميع الفئات السعرية</option>
-          <option value="C-">فئة C-</option>
-          <option value="C">فئة C</option>
-          <option value="C+">فئة C+</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>حالة دوران المنتج</label>
-        <select id="movementFilter">
-          <option value="">جميع الحالات</option>
-          <option value="سريع الدوران">سريع الدوران (Fast)</option>
-          <option value="دوران طبيعي">دوران طبيعي (Normal)</option>
-          <option value="بطيء الدوران">بطيء الدوران (Slow)</option>
-          <option value="راكد">راكد (Dead Stock)</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>الفئة</label>
-        <select id="categoryFilter"><option value="">كل الفئات</option></select>
-      </div>
-      <div class="form-group">
-        <label>بحث بالاسم أو الكود</label>
-        <input type="text" id="searchInput" placeholder="ابحث عن صنف...">
-      </div>
-    </div>
-  </div>
-
-  <div class="table-container">
-    <table>
-      <thead>
-        <tr>
-          <th data-key="displayName">المنتج / SKU</th>
-          <th data-key="category">الفئة</th>
-          <th data-key="priceClass">الفئة السعرية</th>
-          <th data-key="qtyOnHand" class="num">الكمية بالمخزن</th>
-          <th data-key="actualSoldQty" class="num">المبيعات الفعلية</th>
-          <th data-key="unitCost" class="num">تكلفة الوحدة</th>
-          <th data-key="salesPrice" class="num">سعر البيع الحالي</th>
-          <th data-key="turnoverRate" class="num">معدل الدوران الفعلي</th>
-          <th data-key="daysOfInventory" class="num">أيام التغطية</th>
-          <th data-key="movementStatus">تصنيف الحركة</th>
-          <th data-key="maxDiscountPct" class="num">أقصى خصم مسموح</th>
-          <th data-key="floorPrice" class="num">أدنى سعر بيع</th>
-          <th data-key="stockValue" class="num">إجمالي التكلفة</th>
-        </tr>
-      </thead>
-      <tbody id="inventoryTableBody"></tbody>
-    </table>
-  </div>
-</div>
-
-<!-- TAB 2: AUDIT & INVENTORY CHECK -->
-<div id="tab-audit" class="tab-content">
-  <div class="panel">
-    <div style="font-weight: 700; margin-bottom: 8px;">📋 مطابقة الأرصدة (رصيد أول + الحركات - رصيد آخر vs الجرد الفعلي)</div>
-    <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
-      يتم تنظيف البيانات تلقائياً، إزالة المسافات الزائدة من الأسماء، ومعالجة السوالب عبر المعادلة المحاسبية لنظام دقيق بنسبة 95%+.
-    </p>
-  </div>
-
-  <div class="table-container">
-    <table>
-      <thead>
-        <tr>
-          <th>اسم المنتج</th>
-          <th class="num">رصيد أول المدة</th>
-          <th class="num">إجمالي الإضافات (IN)</th>
-          <th class="num">إجمالي الصرف (OUT)</th>
-          <th class="num">رصيد آخر المدة (محسوب)</th>
-          <th class="num">الجرد الفعلي</th>
-          <th>تاريخ الجرد</th>
-          <th class="num">الفروقات (العجز/الزيادة)</th>
-          <th>حالة المطابقة</th>
-        </tr>
-      </thead>
-      <tbody id="auditTableBody"></tbody>
-    </table>
-  </div>
-</div>
-
-<!-- TAB 3: STOCK MOVES -->
-<div id="tab-moves" class="tab-content">
-  <div class="panel">
-    <div class="panel-title" style="font-weight: 700; margin-bottom: 12px;">فلترة سجل حركات المخزون الزمني</div>
-    <div class="controls-grid">
-      <div class="form-group">
-        <label>بحث بالمنتج / Reference</label>
-        <input type="text" id="movesSearchInput" placeholder="بحث في الحركات...">
-      </div>
-      <div class="form-group">
-        <label>نوع الحركة</label>
-        <select id="moveTypeFilter">
-          <option value="">جميع الحركات</option>
-          <option value="OUT">صرف / مبيعات (Customer Out)</option>
-          <option value="IN">إضافة / توريد (Vendor In)</option>
-        </select>
-      </div>
-    </div>
-  </div>
-
-  <div class="table-container">
-    <table>
-      <thead>
-        <tr>
-          <th data-mkey="date">التاريخ والوقت</th>
-          <th data-mkey="reference">المرجع (Reference)</th>
-          <th data-mkey="product">اسم المنتج (منظف)</th>
-          <th data-mkey="from_loc">من (From)</th>
-          <th data-mkey="to_loc">إلى (To)</th>
-          <th data-mkey="qty" class="num">الكمية</th>
-          <th data-mkey="uom">وحدة القياس</th>
-          <th>نوع الحركة</th>
-        </tr>
-      </thead>
-      <tbody id="movesTableBody"></tbody>
-    </table>
-  </div>
-</div>
-
-<!-- Settings & Actions Modal -->
-<div class="modal-overlay" id="settingsModal">
-  <div class="modal">
-    <h3>إعدادات النظام والعمليات</h3>
-    <p>إدارة الملفات، التصدير، وضبط قواعد التصنيف السعري والربط السحابي:</p>
-
-    <div id="uploadProgressBanner">⏳ جاري معالجة الشيت ورفعه للسحابة، يرجى الانتظار...</div>
-
-    <!-- Price Classification Settings -->
-    <div class="modal-section">
-      <div class="modal-section-title">🏷️ ضبط قواعد حدود الفئات السعرية</div>
-      <button class="btn lock-btn" id="unlockPriceLimitsBtn">🔒 تعديل حدود الفئات السعرية (بكلمة سر رفع الشيتات)</button>
-      
-      <div id="protectedPriceSection" class="hidden" style="margin-top:12px;">
-        <div class="rule-edit-row">
-          <label style="color: #6b21a8;">• C- :</label>
-          <span>من 0 إلى</span>
-          <input type="number" id="ruleCMinusMax" value="300">
-          <span>ج.م</span>
+    <!-- TAB 1: DASHBOARD & ANALYTICS -->
+    <div id="tab-dashboard" class="tab-content active space-y-6">
+      <!-- KPI Cards Grid -->
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+          <div>
+            <p class="text-xs font-semibold text-slate-500">إجمالي قيمة المخزون الحالية</p>
+            <h3 class="text-2xl font-bold text-slate-900 mt-1 num" id="kpiTotalValue">0</h3>
+            <span class="text-xs text-slate-400 font-medium">ريال سعودي</span>
+          </div>
+          <div class="bg-blue-50 p-3 rounded-xl text-blue-600">
+            <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+          </div>
         </div>
 
-        <div class="rule-edit-row">
-          <label style="color: #2563eb;">• C :</label>
-          <span>من</span>
-          <span id="ruleCMinStart" style="font-weight: bold; width: 45px; text-align: center;">301</span>
-          <span>إلى</span>
-          <input type="number" id="ruleCMax" value="550">
-          <span>ج.م</span>
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+          <div>
+            <p class="text-xs font-semibold text-slate-500">معدل دوران المخزون العام</p>
+            <h3 class="text-2xl font-bold text-slate-900 mt-1 num" id="kpiAvgTurnover">0.0x</h3>
+            <span class="text-xs text-slate-400 font-medium">مرة / سنوياً</span>
+          </div>
+          <div class="bg-emerald-50 p-3 rounded-xl text-emerald-600">
+            <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+          </div>
         </div>
 
-        <div class="rule-edit-row">
-          <label style="color: #16a34a;">• C+ :</label>
-          <span>أكبر من</span>
-          <span id="ruleCPlusStart" style="font-weight: bold; width: 45px; text-align: center;">551</span>
-          <span>ج.م إلى أعلى سعر</span>
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+          <div>
+            <p class="text-xs font-semibold text-slate-500">متوسط أيام التغطية (DIO)</p>
+            <h3 class="text-2xl font-bold text-slate-900 mt-1 num" id="kpiAvgDays">0</h3>
+            <span class="text-xs text-slate-400 font-medium">يوم</span>
+          </div>
+          <div class="bg-amber-50 p-3 rounded-xl text-amber-600">
+            <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+          </div>
         </div>
 
-        <button class="btn secondary" id="savePriceLimitsBtn" style="border-color: var(--primary); color: var(--primary); margin-top: 8px;">حفظ وتطبيق القواعد</button>
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+          <div>
+            <p class="text-xs font-semibold text-slate-500">عدد الأصناف في المخزن</p>
+            <h3 class="text-2xl font-bold text-slate-900 mt-1 num" id="kpiTotalItems">0</h3>
+            <span class="text-xs text-slate-400 font-medium">صنف مسجل</span>
+          </div>
+          <div class="bg-purple-50 p-3 rounded-xl text-purple-600">
+            <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- Charts Row -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+          <h4 class="text-sm font-bold text-slate-800 mb-4">توزيع الأصناف حسب حركة الدوران</h4>
+          <div class="relative h-64">
+            <canvas id="doughnutChart"></canvas>
+          </div>
+        </div>
+
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+          <h4 class="text-sm font-bold text-slate-800 mb-4">توزيع الأصناف حسب الفئة السعرية (C-, C, C+)</h4>
+          <div class="relative h-64">
+            <canvas id="priceDoughnutChart"></canvas>
+          </div>
+        </div>
+
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+          <h4 class="text-sm font-bold text-slate-800 mb-4">أعلى الأصناف مبيعاً (كميات)</h4>
+          <div class="relative h-64">
+            <canvas id="barChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Group Summary Table -->
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="p-4 border-b border-slate-200 bg-slate-50">
+          <h4 class="text-sm font-bold text-slate-800">ملخص المخزون حسب التصنيفات الفئوية</h4>
+        </div>
+        <div class="table-container overflow-x-auto">
+          <table class="w-full text-right text-xs">
+            <thead class="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+              <tr>
+                <th class="p-3">الفئة / التصنيف</th>
+                <th class="p-3">عدد الأصناف</th>
+                <th class="p-3">إجمالي قيمة المخزون</th>
+                <th class="p-3">إجمالي الكميات المباعة</th>
+                <th class="p-3">متوسط معدل الدوران</th>
+              </tr>
+            </thead>
+            <tbody id="categorySummaryBody" class="divide-y divide-slate-200">
+              <!-- Rendered via JS -->
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
 
-    <!-- Protected Cloud Settings Toggle -->
-    <div class="modal-section">
-      <div class="modal-section-title">🔌 إعدادات الربط السحابي (Supabase)</div>
-      <button class="btn lock-btn" id="unlockCloudBtn">🔒 فتح إعدادات الربط والرياسة (تطلب كلمة السر 22181)</button>
-      
-      <div id="protectedCloudSection" class="hidden" style="margin-top: 14px;">
-        <div class="form-group" style="margin-bottom:10px;">
-          <label>Project URL</label>
-          <input type="text" id="supaUrl" value="https://vpltgqemhjmelptnnabj.supabase.co" placeholder="https://xxxx.supabase.co">
+    <!-- TAB 2: INVENTORY MAIN TABLE -->
+    <div id="tab-inventory" class="tab-content space-y-4">
+      <!-- Search & Filters Bar -->
+      <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4">
+        <div class="flex flex-wrap items-center gap-3">
+          <input type="text" id="searchInput" placeholder="بحث باسم الصنف..." class="p-2 border border-slate-300 rounded-xl text-xs w-64 focus:ring-2 focus:ring-blue-500 outline-none">
+          
+          <select id="categoryFilter" class="p-2 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none">
+            <option value="">جميع التصنيفات</option>
+          </select>
+
+          <select id="movementFilter" class="p-2 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none">
+            <option value="">جميع حالات الدوران</option>
+            <option value="سريع الدوران">سريع الدوران</option>
+            <option value="دوران طبيعي">دوران طبيعي</option>
+            <option value="بطيء الدوران">بطيء الدوران</option>
+            <option value="راكد">راكد</option>
+          </select>
+
+          <select id="priceClassFilter" class="p-2 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none">
+            <option value="">جميع الفئات السعرية</option>
+            <option value="C-">C- (حتى 300 ريال)</option>
+            <option value="C">C (300 - 550 ريال)</option>
+            <option value="C+">C+ (أعلى من 550 ريال)</option>
+          </select>
         </div>
-        <div class="form-group" style="margin-bottom:10px;">
-          <label>Anon API Key</label>
-          <input type="password" id="supaKey" value="sb_publishable_B4eYWhNEbMCF7NjKjS1z2A_0xUdFOUZ">
+
+        <div class="text-xs text-slate-500 font-semibold">
+          * يمكنك الضغط على رؤوس الأعمدة للترتيب
         </div>
-        <div class="form-group" style="margin-bottom:12px;">
-          <label>كلمة سر الأدمن للرفع</label>
-          <input type="password" id="adminPasswordInput" value="22181">
+      </div>
+
+      <!-- Detailed Table -->
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="table-container overflow-x-auto max-h-[650px]">
+          <table class="w-full text-right text-xs">
+            <thead class="bg-slate-100 text-slate-700 font-bold sticky top-0 z-10 border-b border-slate-200">
+              <tr>
+                <th class="p-3 cursor-pointer hover:bg-slate-200" data-key="displayName">الصنف ⇕</th>
+                <th class="p-3 cursor-pointer hover:bg-slate-200" data-key="category">الفئة ⇕</th>
+                <th class="p-3 cursor-pointer hover:bg-slate-200" data-key="priceClass">الفئة السعرية ⇕</th>
+                <th class="p-3 cursor-pointer hover:bg-slate-200" data-key="qtyOnHand">المخزون الحالي ⇕</th>
+                <th class="p-3 cursor-pointer hover:bg-slate-200" data-key="actualSoldQty">المبيعات الفعلية ⇕</th>
+                <th class="p-3 cursor-pointer hover:bg-slate-200" data-key="unitCost">التكلفة ⇕</th>
+                <th class="p-3 cursor-pointer hover:bg-slate-200" data-key="salesPrice">سعر البيع ⇕</th>
+                <th class="p-3 cursor-pointer hover:bg-slate-200" data-key="turnoverRate">معدل الدوران ⇕</th>
+                <th class="p-3 cursor-pointer hover:bg-slate-200" data-key="daysOfInventory">أيام التغطية ⇕</th>
+                <th class="p-3 cursor-pointer hover:bg-slate-200" data-key="movementStatus">الحركة ⇕</th>
+                <th class="p-3 cursor-pointer hover:bg-slate-200" data-key="maxDiscountPct">أقصى خصم ⇕</th>
+                <th class="p-3 cursor-pointer hover:bg-slate-200" data-key="floorPrice">حد السعر الأدنى ⇕</th>
+                <th class="p-3 cursor-pointer hover:bg-slate-200" data-key="stockValue">إجمالي القيمة ⇕</th>
+              </tr>
+            </thead>
+            <tbody id="inventoryTableBody" class="divide-y divide-slate-200">
+              <!-- Rendered via JS -->
+            </tbody>
+          </table>
         </div>
-        <button class="btn" id="connectBtn">حفظ وتوصيل القاعدة السحابية</button>
       </div>
     </div>
 
-    <!-- Data Actions -->
-    <div class="modal-section">
-      <div class="modal-section-title">📂 إدارة شيتات البيانات والتصدير</div>
-      <div style="display: flex; flex-direction: column; gap: 10px;">
-        <button class="btn secondary upload-btn" id="uploadInvInitialBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت رصيد أول المدة</button>
-        <button class="btn secondary upload-btn" id="uploadInvFinalBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت رصيد آخر المدة</button>
-        <button class="btn secondary upload-btn" id="uploadAuditBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت آخر جرد مخزون</button>
-        <button class="btn secondary upload-btn" id="uploadValuationBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت آخر تقييم للمخزون (Odoo Valuation)</button>
-        <button class="btn secondary upload-btn" id="uploadMovesBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت الحركة (Stock Moves)</button>
+    <!-- TAB 3: AUDIT & RECONCILIATION -->
+    <div id="tab-audit" class="tab-content space-y-4">
+      <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+        <div>
+          <h3 class="text-sm font-bold text-slate-800">تقرير المطابقة والجرد الفعلي</h3>
+          <p class="text-xs text-slate-500">يقارن بين (رصيد أول + الوارد - المنصرف) والجرد الفعلي بالمستودع</p>
+        </div>
       </div>
-      <input type="file" id="fileInputInvInitial" accept=".xlsx, .xls, .csv">
-      <input type="file" id="fileInputInvFinal" accept=".xlsx, .xls, .csv">
-      <input type="file" id="fileInputAudit" accept=".xlsx, .xls, .csv">
-      <input type="file" id="fileInputValuation" accept=".xlsx, .xls, .csv">
-      <input type="file" id="fileInputMoves" accept=".xlsx, .xls, .csv" multiple>
+
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="table-container overflow-x-auto">
+          <table class="w-full text-right text-xs">
+            <thead class="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+              <tr>
+                <th class="p-3">اسم الصنف</th>
+                <th class="p-3">رصيد أول المدة</th>
+                <th class="p-3">إجمالي الوارد (In)</th>
+                <th class="p-3">إجمالي المنصرف (Out)</th>
+                <th class="p-3">الرصيد الدفتري المحسوب</th>
+                <th class="p-3">الجرد الفعلي</th>
+                <th class="p-3">تاريخ الجرد</th>
+                <th class="p-3">الفارق (عجز / زيادة)</th>
+                <th class="p-3">حالة المطابقة</th>
+              </tr>
+            </thead>
+            <tbody id="auditTableBody" class="divide-y divide-slate-200">
+              <!-- Rendered via JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
-    <div class="modal-actions">
-      <button class="btn secondary" onclick="closeSettingsModal()" style="width: auto;">إغلاق النافذة</button>
+    <!-- TAB 4: STOCK MOVES LOG -->
+    <div id="tab-moves" class="tab-content space-y-4">
+      <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4">
+        <div class="flex items-center gap-3">
+          <input type="text" id="movesSearchInput" placeholder="بحث بالصنف أو رقم المرجع..." class="p-2 border border-slate-300 rounded-xl text-xs w-64 focus:ring-2 focus:ring-blue-500 outline-none">
+          <select id="moveTypeFilter" class="p-2 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none">
+            <option value="">جميع الحركات</option>
+            <option value="IN">الوارد فقط (Inflow)</option>
+            <option value="OUT">المنصرف فقط (Outflow / Sales)</option>
+          </select>
+        </div>
+        <div class="text-xs text-slate-500">
+          يعرض آخر الحركات المسجلة في النظام
+        </div>
+      </div>
+
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="table-container overflow-x-auto max-h-[600px]">
+          <table class="w-full text-right text-xs">
+            <thead class="bg-slate-100 text-slate-700 font-bold sticky top-0 z-10 border-b border-slate-200">
+              <tr>
+                <th class="p-3">التاريخ</th>
+                <th class="p-3">المرجع / المستند</th>
+                <th class="p-3">المنتج</th>
+                <th class="p-3">من موقع</th>
+                <th class="p-3">إلى موقع</th>
+                <th class="p-3">الكمية</th>
+                <th class="p-3">الوحدة</th>
+                <th class="p-3">نوع الحركة</th>
+              </tr>
+            </thead>
+            <tbody id="movesTableBody" class="divide-y divide-slate-200">
+              <!-- Rendered via JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- MODAL 1: Password Verification Modal for Uploads -->
+  <div id="passwordModal" class="modal">
+    <div class="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl border border-slate-200 space-y-4">
+      <h3 class="text-base font-bold text-slate-900">تأكيد كلمة سر الرفع</h3>
+      <p class="text-xs text-slate-500">يرجى إدخال كلمة السر الخاصة بالرفع والمشرفين للبدء بمعالجة الملفات.</p>
+      <input type="password" id="modalPasswordInput" placeholder="أدخل كلمة السر..." class="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none">
+      <div class="flex items-center justify-end gap-2 pt-2">
+        <button onclick="closePasswordModal()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all">إلغاء</button>
+        <button id="confirmPasswordBtn" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-all">تأكيد وتكملة</button>
+      </div>
     </div>
   </div>
-</div>
 
-<!-- Master Lock Modal -->
-<div class="modal-overlay" id="masterLockModal">
-  <div class="modal">
-    <h3>إدخال كلمة السر الرئيسية</h3>
-    <p>يرجى إدخال كلمة السر الخاصة بالنظام للوصول إلى الإعدادات المحمية:</p>
-    <div class="form-group">
-      <input type="password" id="masterPasswordInput" placeholder="أدخل كلمة السر الرئيسية...">
-    </div>
-    <div class="modal-actions">
-      <button class="btn secondary" onclick="closeMasterLockModal()" style="width: auto;">إلغاء</button>
-      <button class="btn" id="confirmMasterPasswordBtn" style="width: auto;">تأكيد الفتح</button>
+  <!-- MODAL 2: Settings & Pricing Rules Modal -->
+  <div id="settingsModal" class="modal">
+    <div class="bg-white rounded-2xl p-6 w-full max-w-2xl shadow-2xl border border-slate-200 space-y-6 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between border-b border-slate-200 pb-3">
+        <h3 class="text-base font-bold text-slate-900">إعدادات النظام والقواعد المالية</h3>
+        <button onclick="closeSettingsModal()" class="text-slate-400 hover:text-slate-600">✕</button>
+      </div>
+
+      <!-- Password Setup Section -->
+      <div class="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
+        <h4 class="text-xs font-bold text-slate-700">كلمات سر الحماية</h4>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label class="text-[11px] text-slate-500 block mb-1">كلمة سر الموظفين (للرفع):</label>
+            <input type="password" id="uploadPasswordInput" value="123456" class="w-full p-2 border border-slate-300 rounded-lg text-xs outline-none">
+          </div>
+          <div>
+            <label class="text-[11px] text-slate-500 block mb-1">كلمة سر المدير (للإعدادات والحدود):</label>
+            <input type="password" id="adminPasswordInput" value="admin123" class="w-full p-2 border border-slate-300 rounded-lg text-xs outline-none">
+          </div>
+        </div>
+      </div>
+
+      <!-- Protected Price Rules Section -->
+      <div class="space-y-3 border border-purple-200 bg-purple-50/50 p-4 rounded-xl">
+        <div class="flex items-center justify-between">
+          <h4 class="text-xs font-bold text-purple-900">حدود الفئات السعرية (Price Classes)</h4>
+          <button id="unlockPriceLimitsBtn" class="text-xs font-bold text-purple-700 hover:underline">🔓 فك التأمين</button>
+        </div>
+        <div id="protectedPriceSection" class="hidden space-y-3 pt-2">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <div>
+              <label class="block text-slate-600 mb-1">الحد الأقصى لفئة C- (اقتصادي):</label>
+              <input type="number" id="ruleCMinusMax" value="300" class="w-full p-2 border border-slate-300 rounded-lg outline-none">
+            </div>
+            <div>
+              <label class="block text-slate-600 mb-1">الحد الأقصى لفئة C (متوسط):</label>
+              <input type="number" id="ruleCMax" value="550" class="w-full p-2 border border-slate-300 rounded-lg outline-none">
+            </div>
+          </div>
+          <button id="savePriceLimitsBtn" class="px-4 py-2 bg-purple-600 text-white text-xs font-bold rounded-lg hover:bg-purple-700 transition-all">حفظ حدود الفئات السعرية</button>
+        </div>
+      </div>
+
+      <!-- Protected Cloud Supabase Setup Section -->
+      <div class="space-y-3 border border-blue-200 bg-blue-50/50 p-4 rounded-xl">
+        <div class="flex items-center justify-between">
+          <h4 class="text-xs font-bold text-blue-900">إعدادات الربط السحابي (Supabase Cloud API)</h4>
+          <button id="unlockCloudBtn" class="text-xs font-bold text-blue-700 hover:underline">🔓 فك التأمين</button>
+        </div>
+        <div id="protectedCloudSection" class="hidden space-y-3 pt-2">
+          <div>
+            <label class="block text-slate-600 text-xs mb-1">Project URL:</label>
+            <input type="text" id="supabaseUrlInput" placeholder="https://xyz.supabase.co" class="w-full p-2 border border-slate-300 rounded-lg text-xs outline-none">
+          </div>
+          <div>
+            <label class="block text-slate-600 text-xs mb-1">Anon / API Key:</label>
+            <input type="password" id="supabaseKeyInput" placeholder="eyJhbGciOi..." class="w-full p-2 border border-slate-300 rounded-lg text-xs outline-none">
+          </div>
+          <button id="connectBtn" class="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition-all">حفظ والاتصال بالسحابة</button>
+        </div>
+      </div>
+
+      <div class="flex justify-end border-t border-slate-200 pt-3">
+        <button onclick="closeSettingsModal()" class="px-4 py-2 bg-slate-200 text-slate-800 text-xs font-bold rounded-xl">إغلاق</button>
+      </div>
     </div>
   </div>
-</div>
 
-<!-- Password Modal -->
-<div class="modal-overlay" id="passwordModal">
-  <div class="modal">
-    <h3 id="passwordModalTitle">صلاحيات الأدمن مطلوبة</h3>
-    <p id="passwordModalSub">يرجى إدخال كلمة سر الأدمن الخاصة بالرفع:</p>
-    <div class="form-group">
-      <input type="password" id="modalPasswordInput" placeholder="أدخل كلمة السر...">
-    </div>
-    <div class="modal-actions">
-      <button class="btn secondary" onclick="closePasswordModal()" style="width: auto;">إلغاء</button>
-      <button class="btn" id="confirmPasswordBtn" style="width: auto;">تأكيد</button>
+  <!-- MODAL 3: Master Unlock Password Prompt -->
+  <div id="masterLockModal" class="modal">
+    <div class="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl border border-slate-200 space-y-4">
+      <h3 class="text-sm font-bold text-slate-900">مطلوب كلمة سر المدير</h3>
+      <input type="password" id="masterPasswordInput" placeholder="كلمة السر..." class="w-full p-2.5 border border-slate-300 rounded-xl text-xs outline-none">
+      <div class="flex items-center justify-end gap-2">
+        <button onclick="closeMasterLockModal()" class="px-3 py-1.5 bg-slate-100 text-slate-700 text-xs font-bold rounded-lg">إلغاء</button>
+        <button id="confirmMasterPasswordBtn" class="px-3 py-1.5 bg-purple-600 text-white text-xs font-bold rounded-lg">فك القفل</button>
+      </div>
     </div>
   </div>
-</div>
 
-<script>
-(function(){
-  let supabaseClient = null;
-  let pendingUploadType = null;
-  let activeUnlockTarget = null;
-  let doughnutChartInstance = null;
-  let priceDoughnutChartInstance = null;
-  let barChartInstance = null;
+  <!-- JavaScript Main Application Logic -->
+  <script>
+  (function() {
+    "use strict";
 
-  const MASTER_PASSWORD = "22181";
+    // Application State Variables
+    const MASTER_PASSWORD = "admin123";
+    let pendingUploadType = null;
+    let activeUnlockTarget = null;
+    let supabaseClient = null;
 
-  let priceConfig = {
-    limitCMinus: Number(localStorage.getItem("limit_c_minus")) || 300,
-    limitCMid: Number(localStorage.getItem("limit_c_mid")) || 550
-  };
+    let doughnutChartInstance = null;
+    let priceDoughnutChartInstance = null;
+    let barChartInstance = null;
 
-  let state = {
-    items: [],
-    moves: [],
-    targetMargin: 0.20,
-    sortKey: 'turnoverRate',
-    sortDir: -1,
-    category: '',
-    movement: '',
-    priceClass: '',
-    search: '',
-    movesSearch: '',
-    moveType: ''
-  };
-
-  // Tabs Navigation
-  document.querySelectorAll(".tab-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
-      document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
-      btn.classList.add("active");
-      document.getElementById(btn.dataset.tab).classList.add("active");
-    });
-  });
-
-  function cleanText(str) {
-    if (!str) return "";
-    return String(str).trim().replace(/\s+/g, ' ');
-  }
-
-  function getVal(row, keys) {
-    for (let k of keys) {
-      if (row[k] !== undefined && row[k] !== null && String(row[k]).trim() !== "") {
-        return row[k];
-      }
-    }
-    return null;
-  }
-
-  function setUploadLoading(isLoading, msg = "") {
-    const banner = document.getElementById("uploadProgressBanner");
-    const btns = document.querySelectorAll(".upload-btn");
-    if(isLoading) {
-      banner.style.display = "block";
-      banner.textContent = msg || "⏳ جاري قراءة الملف وتجهيزه للرفع...";
-      btns.forEach(b => b.disabled = true);
-    } else {
-      banner.style.display = "none";
-      btns.forEach(b => b.disabled = false);
-    }
-  }
-
-  function computeSalesAndStockFromMoves(moves) {
-    const summary = {};
-    moves.forEach(m => {
-      const pName = cleanText(m.product);
-      if(!pName) return;
-
-      if (!summary[pName]) {
-        summary[pName] = { totalIn: 0, totalOut: 0 };
-      }
-
-      const isCustomerOut = (m.to_loc && (m.to_loc.includes("Virtual") || m.to_loc.includes("Customer") || m.to_loc.includes("عملاء")));
-      const isVendorIn = (m.from_loc && (m.from_loc.includes("Virtual") || m.from_loc.includes("Vendor") || m.from_loc.includes("موردين")));
-      const qty = Math.abs(Number(m.qty) || 0);
-
-      if (isCustomerOut) {
-        summary[pName].totalOut += qty;
-      } else if (isVendorIn) {
-        summary[pName].totalIn += qty;
-      }
-    });
-    return summary;
-  }
-
-  function getPriceClass(price) {
-    if (price <= priceConfig.limitCMinus) return "C-";
-    if (price <= priceConfig.limitCMid) return "C";
-    return "C+";
-  }
-
-  function syncPriceRuleInputs() {
-    const cMin = Number(document.getElementById("ruleCMinusMax").value) || priceConfig.limitCMinus;
-    const cMid = Number(document.getElementById("ruleCMax").value) || priceConfig.limitCMid;
-
-    document.getElementById("ruleCMinStart").textContent = cMin + 1;
-    document.getElementById("ruleCPlusStart").textContent = cMid + 1;
-  }
-
-  document.getElementById("ruleCMinusMax").addEventListener("input", syncPriceRuleInputs);
-  document.getElementById("ruleCMax").addEventListener("input", syncPriceRuleInputs);
-
-  function processItem(item, targetMargin, moveSummary) {
-    const displayName = cleanText(item.name);
-    const category = cleanText(item.cat) || "غير محدد";
-    const unitCost = Number(item.cost) || 0;
-    const salesPrice = Number(item.price) || 0;
-    
-    const qtyInitial = Number(item.qtyInitial) || 0;
-    const movesData = moveSummary[displayName] || { totalIn: 0, totalOut: 0 };
-    
-    let qtyOnHand = Number(item.qtyFinal);
-    if (isNaN(qtyOnHand)) {
-      qtyOnHand = qtyInitial + movesData.totalIn - movesData.totalOut;
-    }
-    if (qtyOnHand < 0) qtyOnHand = 0;
-
-    const actualSoldQty = movesData.totalOut || Number(item.soldYr) || 0;
-
-    const auditQty = item.auditQty !== undefined && item.auditQty !== null ? Number(item.auditQty) : null;
-    const auditDate = item.auditDate || 'غير مجرود';
-
-    const priceClass = getPriceClass(salesPrice);
-    const stockValue = Number(item.stockValue) || (unitCost * qtyOnHand);
-    const avgInv = qtyOnHand > 0 ? qtyOnHand : 1;
-    const turnoverRate = Number((actualSoldQty / avgInv).toFixed(2));
-    const daysOfInventory = turnoverRate > 0 ? Math.round(365 / turnoverRate) : 999;
-
-    let movementStatus = 'دوران طبيعي';
-    let badgeClass = 'normal';
-    if (turnoverRate >= 4.0) { movementStatus = 'سريع الدوران'; badgeClass = 'fast'; }
-    else if (turnoverRate < 4.0 && turnoverRate >= 1.0) { movementStatus = 'دوران طبيعي'; badgeClass = 'normal'; }
-    else if (turnoverRate < 1.0 && turnoverRate > 0.1) { movementStatus = 'بطيء الدوران'; badgeClass = 'slow'; }
-    else { movementStatus = 'راكد'; badgeClass = 'dead'; }
-
-    const maxDiscountPct = Number((((salesPrice - unitCost) / salesPrice) * 100).toFixed(1)) || 0;
-    const floorPrice = Number((unitCost * (1 + targetMargin)).toFixed(2));
-
-    return {
-      displayName,
-      category,
-      priceClass,
-      qtyOnHand,
-      actualSoldQty,
-      unitCost,
-      salesPrice,
-      turnoverRate,
-      daysOfInventory,
-      movementStatus,
-      badgeClass,
-      maxDiscountPct,
-      floorPrice,
-      stockValue,
-      qtyInitial,
-      totalIn: movesData.totalIn,
-      totalOut: movesData.totalOut,
-      auditQty,
-      auditDate
+    let priceConfig = {
+      limitCMinus: Number(localStorage.getItem("limit_c_minus")) || 300,
+      limitCMid: Number(localStorage.getItem("limit_c_mid")) || 550
     };
-  }
 
-  // Supabase Connection initialization
-  async function initSupabase() {
-    const url = document.getElementById("supaUrl").value.trim();
-    const key = document.getElementById("supaKey").value.trim();
-    const statusInd = document.getElementById("syncStatus");
-    const statusText = document.getElementById("syncText");
+    let state = {
+      targetMargin: 0.40,
+      search: '',
+      category: '',
+      movement: '',
+      priceClass: '',
+      sortKey: 'stockValue',
+      sortDir: -1,
+      movesSearch: '',
+      moveType: '',
+      items: [
+        { name: "شاشة سامسونج 65 بوصة 4K", cat: "إلكترونيات", cost: 1800, price: 2800, qtyInitial: 20, qtyFinal: 15, soldYr: 85, auditQty: 15, auditDate: "2026-08-20" },
+        { name: "ثلاجة إل جي 18 قدم نوفرست", cat: "أجهزة منزلية", cost: 2400, price: 3600, qtyInitial: 10, qtyFinal: 8, soldYr: 32, auditQty: 8, auditDate: "2026-08-20" },
+        { name: "غسالة توشيبا 7 كيلو أوتوماتيك", cat: "أجهزة منزلية", cost: 1100, price: 1650, qtyInitial: 15, qtyFinal: 12, soldYr: 45, auditQty: 11, auditDate: "2026-08-20" },
+        { name: "ماكينة قهوة ديلونجي ديديكا", cat: "أجهزة منزلية", cost: 450, price: 750, qtyInitial: 40, qtyFinal: 35, soldYr: 120, auditQty: 35, auditDate: "2026-08-20" },
+        { name: "سماعة أبل ايربودز برو 2", cat: "إلكترونيات", cost: 650, price: 950, qtyInitial: 50, qtyFinal: 42, soldYr: 210, auditQty: 42, auditDate: "2026-08-20" },
+        { name: "خلاط مولينكس 500 واط مع ملحقات", cat: "أدوات مطبخ", cost: 120, price: 220, qtyInitial: 80, qtyFinal: 75, soldYr: 180, auditQty: 75, auditDate: "2026-08-20" },
+        { name: "قلاية هوائية فيليبس XL", cat: "أدوات مطبخ", cost: 380, price: 620, qtyInitial: 30, qtyFinal: 22, soldYr: 140, auditQty: 22, auditDate: "2026-08-20" },
+        { name: "مكواة بخار تيفال 2000 واط", cat: "أجهزة منزلية", cost: 95, price: 160, qtyInitial: 60, qtyFinal: 58, soldYr: 25, auditQty: 58, auditDate: "2026-08-20" },
+        { name: "مروحة سقف توشيبا 56 بوصة", cat: "أجهزة منزلية", cost: 180, price: 290, qtyInitial: 25, qtyFinal: 24, soldYr: 8, auditQty: 24, auditDate: "2026-08-20" },
+        { name: "تلفزيون سوني 55 بوصة OLED", cat: "إلكترونيات", cost: 3200, price: 4800, qtyInitial: 5, qtyFinal: 4, soldYr: 18, auditQty: 4, auditDate: "2026-08-20" }
+      ],
+      moves: [
+        { date: "2026-08-01", reference: "WH/IN/00101", product: "شاشة سامسونج 65 بوصة 4K", from_loc: "Vendors/موردين", to_loc: "WH/Stock/المخزن", qty: 20, uom: "قطعة" },
+        { date: "2026-08-05", reference: "WH/OUT/00342", product: "شاشة سامسونج 65 بوصة 4K", from_loc: "WH/Stock/المخزن", to_loc: "Customers/عملاء", qty: 5, uom: "قطعة" },
+        { date: "2026-08-10", reference: "WH/OUT/00389", product: "غسالة توشيبا 7 كيلو أوتوماتيك", from_loc: "WH/Stock/المخزن", to_loc: "Customers/عملاء", qty: 4, uom: "قطعة" },
+        { date: "2026-08-12", reference: "WH/IN/00115", product: "سماعة أبل ايربودز برو 2", from_loc: "Vendors/موردين", to_loc: "WH/Stock/المخزن", qty: 30, uom: "قطعة" },
+        { date: "2026-08-15", reference: "WH/OUT/00412", product: "سماعة أبل ايربودز برو 2", from_loc: "WH/Stock/المخزن", to_loc: "Customers/عملاء", qty: 38, uom: "قطعة" }
+      ]
+    };
 
-    if (!url || !key) {
-      statusInd.className = "sync-indicator error";
-      statusText.textContent = "بيانات الاتصال ناقصة";
-      return false;
+    // Helper Utility Functions
+    function cleanText(str) {
+      if (!str) return "";
+      return String(str).trim();
     }
 
-    try {
-      supabaseClient = supabase.createClient(url, key);
-      // Test query
-      const { data, error } = await supabaseClient.from("stock_moves").select("id").limit(1);
-      if (error && error.code !== 'PGRST116') throw error;
-
-      statusInd.className = "sync-indicator connected";
-      statusText.textContent = "متصل بالسحابة بنجاح";
-      await fetchCloudData();
-      return true;
-    } catch (err) {
-      statusInd.className = "sync-indicator error";
-      statusText.textContent = "فشل الاتصال: " + err.message;
-      return false;
+    function getVal(row, keys) {
+      for (let k of keys) {
+        if (row[k] !== undefined && row[k] !== null && row[k] !== "") return row[k];
+      }
+      return null;
     }
-  }
 
-  async function fetchCloudData() {
-    if (!supabaseClient) return;
-    try {
-      const { data: movesData, error: mErr } = await supabaseClient.from("stock_moves").select("*");
-      if (mErr) throw mErr;
-      state.moves = movesData || [];
+    function syncPriceRuleInputs() {
+      document.getElementById("ruleCMinusMax").value = priceConfig.limitCMinus;
+      document.getElementById("ruleCMax").value = priceConfig.limitCMid;
+    }
 
-      // Fetch or derive items
-      const { data: itemsData, error: iErr } = await supabaseClient.from("inventory_items").select("*");
-      if (!iErr && itemsData && itemsData.length > 0) {
-        state.items = itemsData;
+    function setUploadLoading(isLoading, text = "") {
+      const loader = document.getElementById("uploadLoader");
+      const statusText = document.getElementById("uploadStatusText");
+      if (isLoading) {
+        statusText.innerText = text || "جاري المعالجة...";
+        loader.classList.remove("hidden");
       } else {
-        // Build items from moves and valuation if available
-        const moveSummary = computeSalesAndStockFromMoves(state.moves);
-        const uniqueProducts = Object.keys(moveSummary);
-        state.items = uniqueProducts.map(p => ({
-          name: p,
-          cat: "عام",
-          cost: 100,
-          price: 150,
-          qtyInitial: 0,
-          qtyFinal: 10,
-          soldYr: moveSummary[p].totalOut
-        }));
+        loader.classList.add("hidden");
       }
-
-      updateDashboard();
-    } catch (err) {
-      console.error("Error fetching cloud data:", err);
-    }
-  }
-
-  async function batchUpsert(table, data, chunkSize = 300) {
-    for (let i = 0; i < data.length; i += chunkSize) {
-      const chunk = data.slice(i, i + chunkSize);
-      const { error } = await supabaseClient.from(table).upsert(chunk);
-      if (error) throw error;
-    }
-  }
-
-  // UI Rendering & Updates
-  function updateDashboard() {
-    const moveSummary = computeSalesAndStockFromMoves(state.moves);
-    const processed = state.items.map(item => processItem(item, state.targetMargin, moveSummary));
-
-    // Calculate KPIs
-    let totalVal = processed.reduce((acc, i) => acc + i.stockValue, 0);
-    let totalSold = processed.reduce((acc, i) => acc + i.actualSoldQty, 0);
-    let avgTurn = processed.length ? (processed.reduce((acc, i) => acc + i.turnoverRate, 0) / processed.length).toFixed(1) : 0;
-    
-    let deadStockItems = processed.filter(i => i.movementStatus === 'راكد');
-    let deadStockVal = deadStockItems.reduce((acc, i) => acc + i.stockValue, 0);
-
-    document.getElementById("kpiTotalValue").textContent = totalVal.toLocaleString('en-US', {maximumFractionDigits: 0});
-    document.getElementById("kpiTotalSoldQty").textContent = totalSold.toLocaleString('en-US');
-    document.getElementById("kpiMovesCount").textContent = `من واقع ${state.moves.length} حركة مسجلة`;
-    document.getElementById("kpiAvgTurnover").textContent = avgTurn + "x";
-    document.getElementById("kpiDeadStockVal").textContent = deadStockVal.toLocaleString('en-US', {maximumFractionDigits: 0});
-    document.getElementById("kpiDeadStockCount").textContent = `${deadStockItems.length} أصناف راكدة`;
-
-    renderCategoryDropdown(processed);
-    renderSummaryTable(processed);
-    renderInventoryTable(processed);
-    renderAuditTable(processed);
-    renderMovesTable();
-    renderCharts(processed);
-  }
-
-  function renderCategoryDropdown(processed) {
-    const select = document.getElementById("categoryFilter");
-    const currentVal = select.value;
-    const cats = [...new Set(processed.map(i => i.category))];
-    select.innerHTML = '<option value="">كل الفئات</option>' + cats.map(c => `<option value="${c}">${c}</option>`).join('');
-    select.value = currentVal;
-  }
-
-  function renderSummaryTable(processed) {
-    const tbody = document.getElementById("summaryTableBody");
-    const groups = {};
-    processed.forEach(i => {
-      if (!groups[i.category]) {
-        groups[i.category] = { count: 0, stockVal: 0, soldQty: 0, turnoverSum: 0 };
-      }
-      groups[i.category].count++;
-      groups[i.category].stockVal += i.stockValue;
-      groups[i.category].soldQty += i.actualSoldQty;
-      groups[i.category].turnoverSum += i.turnoverRate;
-    });
-
-    tbody.innerHTML = Object.keys(groups).map(cat => {
-      const g = groups[cat];
-      const avgTurn = (g.turnoverSum / g.count).toFixed(2);
-      return `
-        <tr>
-          <td><strong>${cat}</strong></td>
-          <td class="num">${g.count}</td>
-          <td class="num">${g.stockVal.toLocaleString('en-US', {maximumFractionDigits: 0})} ج.م</td>
-          <td class="num">${g.soldQty.toLocaleString('en-US')}</td>
-          <td class="num"><span class="num">${avgTurn}x</span></td>
-        </tr>
-      `;
-    }).join('');
-  }
-
-  function renderInventoryTable(processed) {
-    const tbody = document.getElementById("inventoryTableBody");
-    const priceFilter = document.getElementById("priceClassFilter").value;
-    const movFilter = document.getElementById("movementFilter").value;
-    const catFilter = document.getElementById("categoryFilter").value;
-    const search = document.getElementById("searchInput").value.toLowerCase();
-
-    let filtered = processed.filter(i => {
-      if (priceFilter && i.priceClass !== priceFilter) return false;
-      if (movFilter && i.movementStatus !== movFilter) return false;
-      if (catFilter && i.category !== catFilter) return false;
-      if (search && !i.displayName.toLowerCase().includes(search)) return false;
-      return true;
-    });
-
-    // Sorting
-    filtered.sort((a, b) => {
-      let valA = a[state.sortKey];
-      let valB = b[state.sortKey];
-      if (typeof valA === 'string') {
-        return state.sortDir * valA.localeCompare(valB);
-      }
-      return state.sortDir * (valA - valB);
-    });
-
-    tbody.innerHTML = filtered.map(i => `
-      <tr>
-        <td><strong>${i.displayName}</strong></td>
-        <td>${i.category}</td>
-        <td><span class="badge price-class">${i.priceClass}</span></td>
-        <td class="num">${i.qtyOnHand.toLocaleString('en-US')}</td>
-        <td class="num">${i.actualSoldQty.toLocaleString('en-US')}</td>
-        <td class="num">${i.unitCost.toFixed(2)}</td>
-        <td class="num">${i.salesPrice.toFixed(2)}</td>
-        <td class="num"><span class="num">${i.turnoverRate}x</span></td>
-        <td class="num">${i.daysOfInventory === 999 ? '∞' : i.daysOfInventory} يوم</td>
-        <td><span class="badge ${i.badgeClass}">${i.movementStatus}</span></td>
-        <td class="num">${i.maxDiscountPct}%</td>
-        <td class="num" style="color:var(--primary); font-weight:600;">${i.floorPrice} ج.م</td>
-        <td class="num">${i.stockValue.toLocaleString('en-US', {maximumFractionDigits: 0})} ج.م</td>
-      </tr>
-    `).join('');
-  }
-
-  function renderAuditTable(processed) {
-    const tbody = document.getElementById("auditTableBody");
-    tbody.innerHTML = processed.map(i => {
-      const computedFinal = i.qtyInitial + i.totalIn - i.totalOut;
-      const auditQ = i.auditQty !== null ? i.auditQty : computedFinal;
-      const diff = auditQ - computedFinal;
-      const matchBadge = diff === 0 ? '<span class="badge match">مطابق 100%</span>' : `<span class="badge diff">${diff > 0 ? 'زيادة ' + diff : 'عجز ' + Math.abs(diff)}</span>`;
-      
-      return `
-        <tr>
-          <td><strong>${i.displayName}</strong></td>
-          <td class="num">${i.qtyInitial}</td>
-          <td class="num" style="color:var(--success)">+${i.totalIn}</td>
-          <td class="num" style="color:var(--danger)">-${i.totalOut}</td>
-          <td class="num">${computedFinal}</td>
-          <td class="num"><strong>${auditQ}</strong></td>
-          <td>${i.auditDate}</td>
-          <td class="num"><strong>${diff}</strong></td>
-          <td>${matchBadge}</td>
-        </tr>
-      `;
-    }).join('');
-  }
-
-  function renderMovesTable() {
-    const tbody = document.getElementById("movesTableBody");
-    const search = document.getElementById("movesSearchInput").value.toLowerCase();
-    const typeFilter = document.getElementById("moveTypeFilter").value;
-
-    let filtered = state.moves.filter(m => {
-      const pName = String(m.product || "").toLowerCase();
-      const ref = String(m.reference || "").toLowerCase();
-      if (search && !pName.includes(search) && !ref.includes(search)) return false;
-
-      const isCustomerOut = (m.to_loc && (m.to_loc.includes("Virtual") || m.to_loc.includes("Customer") || m.to_loc.includes("عملاء")));
-      const isVendorIn = (m.from_loc && (m.from_loc.includes("Virtual") || m.from_loc.includes("Vendor") || m.from_loc.includes("موردين")));
-      
-      if (typeFilter === 'OUT' && !isCustomerOut) return false;
-      if (typeFilter === 'IN' && !isVendorIn) return false;
-      return true;
-    });
-
-    tbody.innerHTML = filtered.slice(0, 100).map(m => {
-      const isCustomerOut = (m.to_loc && (m.to_loc.includes("Virtual") || m.to_loc.includes("Customer") || m.to_loc.includes("عملاء")));
-      const badge = isCustomerOut ? '<span class="badge out">صرف مبيعات (OUT)</span>' : '<span class="badge in">توريد (IN)</span>';
-      return `
-        <tr>
-          <td><span class="num">${m.date || '-'}</span></td>
-          <td>${m.reference || '-'}</td>
-          <td><strong>${m.product}</strong></td>
-          <td>${m.from_loc || '-'}</td>
-          <td>${m.to_loc || '-'}</td>
-          <td class="num">${m.qty}</td>
-          <td>${m.uom || '-'}</td>
-          <td>${badge}</td>
-        </tr>
-      `;
-    }).join('');
-  }
-
-  function renderCharts(processed) {
-    // 1. Doughnut Chart: Movement Status
-    const statusCounts = { 'سريع الدوران': 0, 'دوران طبيعي': 0, 'بطيء الدوران': 0, 'راكد': 0 };
-    processed.forEach(i => { if(statusCounts[i.movementStatus] !== undefined) statusCounts[i.movementStatus]++; });
-
-    const ctx1 = document.getElementById("doughnutChart").getContext("2d");
-    if (doughnutChartInstance) doughnutChartInstance.destroy();
-    doughnutChartInstance = new Chart(ctx1, {
-      type: 'doughnut',
-      data: {
-        labels: Object.keys(statusCounts),
-        datasets: [{ data: Object.values(statusCounts), backgroundColor: ['#16a34a', '#2563eb', '#d97706', '#dc2626'] }]
-      },
-      options: { responsive: true, maintainAspectRatio: false }
-    });
-
-    // 2. Price Class Chart
-    const priceCounts = { 'C-': 0, 'C': 0, 'C+': 0 };
-    processed.forEach(i => { if(priceCounts[i.priceClass] !== undefined) priceCounts[i.priceClass]++; });
-
-    const ctx2 = document.getElementById("priceDoughnutChart").getContext("2d");
-    if (priceDoughnutChartInstance) priceDoughnutChartInstance.destroy();
-    priceDoughnutChartInstance = new Chart(ctx2, {
-      type: 'doughnut',
-      data: {
-        labels: Object.keys(priceCounts),
-        datasets: [{ data: Object.values(priceCounts), backgroundColor: ['#8b5cf6', '#3b82f6', '#10b981'] }]
-      },
-      options: { responsive: true, maintainAspectRatio: false }
-    });
-
-    // 3. Bar Chart: Top Selling Items
-    const sortedBySales = [...processed].sort((a,b) => b.actualSoldQty - a.actualSoldQty).slice(0, 5);
-    const ctx3 = document.getElementById("barChart").getContext("2d");
-    if (barChartInstance) barChartInstance.destroy();
-    barChartInstance = new Chart(ctx3, {
-      type: 'bar',
-      data: {
-        labels: sortedBySales.map(i => i.displayName.length > 15 ? i.displayName.substring(0, 15) + '...' : i.displayName),
-        datasets: [{ label: 'الكمية المباعة', data: sortedBySales.map(i => i.actualSoldQty), backgroundColor: '#2563eb' }]
-      },
-      options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
-    });
-  }
-
-  // File Upload Handlers
-  async function handleFileUpload(file, type) {
-    const data = await file.arrayBuffer();
-    const wb = XLSX.read(data, { type: 'array' });
-    const sheetName = wb.SheetNames[0];
-    const json = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
-
-    if (!supabaseClient) throw new Error("يرجى توصيل السحابة أولاً من الإعدادات!");
-
-    if (type === 'moves') {
-      let allMoves = [];
-      const timeStamp = Date.now();
-      json.forEach((r, idx) => {
-        const product = cleanText(getVal(r, ["Product", "المنتج", "الصنف", "اسم المنتج"]));
-        if (!product) return;
-        allMoves.push({
-          id: `${timeStamp}-${idx}`,
-          date: String(getVal(r, ["Date", "التاريخ"]) || ""),
-          reference: String(getVal(r, ["Reference", "المرجع"]) || ""),
-          product: product,
-          from_loc: String(getVal(r, ["From", "من"]) || ""),
-          to_loc: String(getVal(r, ["To", "إلى"]) || ""),
-          qty: Math.abs(Number(getVal(r, ["Quantity", "الكمية"]) || 0)),
-          uom: String(getVal(r, ["Unit of Measure", "وحدة القياس"]) || "")
-        });
-      });
-
-      if (allMoves.length === 0) throw new Error("لم يتم العثور على حركات صالحة داخل الشيت!");
-      setUploadLoading(true, `⏳ رفع ${allMoves.length} حركة مخزنية للسحابة...`);
-      await batchUpsert("stock_moves", allMoves, 300);
-    } else {
-      // General inventory or valuation items
-      let items = [];
-      json.forEach((r) => {
-        const name = cleanText(getVal(r, ["Product", "المنتج", "الصنف", "اسم المنتج", "Description"]));
-        if (!name) return;
-        items.push({
-          name: name,
-          cat: cleanText(getVal(r, ["Category", "الفئة", "التصنيف"])) || "عام",
-          cost: Number(getVal(r, ["Cost", "التكلفة", "سعر التكلفة"])) || 100,
-          price: Number(getVal(r, ["Sales Price", "سعر البيع", "Price"])) || 150,
-          qtyFinal: Number(getVal(r, ["Quantity", "الكمية", "On Hand", "رصيد"])) || 0
-        });
-      });
-      if (items.length === 0) throw new Error("لم يتم العثور على أصناف صالحة في الملف!");
-      setUploadLoading(true, `⏳ رفع ${items.length} صنف للسحابة...`);
-      await batchUpsert("inventory_items", items, 300);
     }
 
-    await fetchCloudData();
-    alert("تم رفع الشيت ومعالجته بنجاح!");
-  }
+    // Tab Switching Logic
+    window.switchTab = function(tabName) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
 
-  // Event Listeners for Uploads & Inputs
-  document.querySelectorAll(".upload-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const idMap = {
-        'uploadInvInitialBtn': 'fileInputInvInitial',
-        'uploadInvFinalBtn': 'fileInputInvFinal',
-        'uploadAuditBtn': 'fileInputAudit',
-        'uploadValuationBtn': 'fileInputValuation',
-        'uploadMovesBtn': 'fileInputMoves'
-      };
-      const inputId = idMap[btn.id];
-      if (inputId) {
-        pendingUploadType = btn.id.replace('upload', '').replace('Btn', '').toLowerCase();
-        openPasswordModal();
-      }
-    });
-  });
-
-  document.getElementById("confirmPasswordBtn").addEventListener("click", async () => {
-    const pass = document.getElementById("modalPasswordInput").value;
-    if (pass !== MASTER_PASSWORD) {
-      alert("كلمة السر غير صحيحة!");
-      return;
-    }
-    closePasswordModal();
-    
-    const fileInputMap = {
-      'invinitial': 'fileInputInvInitial',
-      'invfinal': 'fileInputInvFinal',
-      'audit': 'fileInputAudit',
-      'valuation': 'fileInputValuation',
-      'moves': 'fileInputMoves'
+      document.getElementById(`tab-${tabName}`).classList.add('active');
+      document.getElementById(`nav-${tabName}`).classList.add('active');
     };
-    const targetInputId = fileInputMap[pendingUploadType];
-    if (targetInputId) {
-      document.getElementById(targetInputId).click();
-    }
-  });
 
-  ['fileInputInvInitial', 'fileInputInvFinal', 'fileInputAudit', 'fileInputValuation', 'fileInputMoves'].forEach(inputId => {
-    document.getElementById(inputId).addEventListener("change", async e => {
-      const files = e.target.files;
-      if (!files || !files.length) return;
-      try {
-        setUploadLoading(true, "⏳ جاري قراءة الملفات ورفعها...");
-        for (let f of files) {
-          await handleFileUpload(f, inputId === 'fileInputMoves' ? 'moves' : 'inventory');
+    // Supabase Cloud Storage Initialization
+    async function initSupabase() {
+      const url = localStorage.getItem("supabase_url") || document.getElementById("supabaseUrlInput").value;
+      const key = localStorage.getItem("supabase_key") || document.getElementById("supabaseKeyInput").value;
+
+      if (url && key) {
+        try {
+          supabaseClient = window.supabase.createClient(url, key);
+          localStorage.setItem("supabase_url", url);
+          localStorage.setItem("supabase_key", key);
+          document.getElementById("supabaseUrlInput").value = url;
+          document.getElementById("supabaseKeyInput").value = key;
+          await loadCloudData();
+          return true;
+        } catch (e) {
+          console.error("Supabase connection error:", e);
         }
+      }
+      return false;
+    }
+
+    async function loadCloudData() {
+      if (!supabaseClient) return;
+      try {
+        setUploadLoading(true, "جاري استدعاء البيانات من السحابة (Supabase)...");
+        const { data: cloudItems, error: itemsErr } = await supabaseClient.from("inventory_items").select("*");
+        if (!itemsErr && cloudItems && cloudItems.length > 0) {
+          state.items = cloudItems;
+        }
+
+        const { data: cloudMoves, error: movesErr } = await supabaseClient.from("stock_moves").select("*");
+        if (!movesErr && cloudMoves && cloudMoves.length > 0) {
+          state.moves = cloudMoves;
+        }
+        updateDashboard();
       } catch (err) {
-        alert("خطأ أثناء الرفع: " + err.message);
+        console.warn("Cloud load failed, using local cache:", err);
       } finally {
         setUploadLoading(false);
-        e.target.value = "";
       }
-    });
-  });
+    }
 
-  // Filter & Control Listeners
-  document.getElementById("targetMarginInput").addEventListener("input", e => {
-    state.targetMargin = (Number(e.target.value) || 20) / 100;
-    updateDashboard();
-  });
-  document.getElementById("priceClassFilter").addEventListener("change", () => updateDashboard());
-  document.getElementById("movementFilter").addEventListener("change", () => updateDashboard());
-  document.getElementById("categoryFilter").addEventListener("change", e => { state.category = e.target.value; updateDashboard(); });
-  document.getElementById("searchInput").addEventListener("input", e => { state.search = e.target.value; updateDashboard(); });
-  document.getElementById("movesSearchInput").addEventListener("input", () => renderMovesTable());
-  document.getElementById("moveTypeFilter").addEventListener("change", () => renderMovesTable());
-
-  // Table Sorting
-  document.querySelectorAll("th[data-key]").forEach(th => {
-    th.addEventListener("click", () => {
-      const key = th.dataset.key;
-      if (state.sortKey === key) {
-        state.sortDir *= -1;
-      } else {
-        state.sortKey = key;
-        state.sortDir = -1;
+    async function batchUpsert(tableName, dataArray) {
+      if (!supabaseClient || !dataArray.length) return;
+      const CHUNK_SIZE = 500;
+      for (let i = 0; i < dataArray.length; i += CHUNK_SIZE) {
+        const chunk = dataArray.slice(i, i + CHUNK_SIZE);
+        const { error } = await supabaseClient.from(tableName).upsert(chunk);
+        if (error) console.error(`Error uploading to ${tableName}:`, error);
       }
+    }
+
+    // Main Calculations & Dashboard Update Pipeline
+    function processInventoryData() {
+      const movesByProduct = {};
+
+      state.moves.forEach(m => {
+        const pName = cleanText(m.product);
+        if (!pName) return;
+        if (!movesByProduct[pName]) {
+          movesByProduct[pName] = { in: 0, out: 0 };
+        }
+        const qty = Math.abs(Number(m.qty) || 0);
+
+        const isOut = m.to_loc && (m.to_loc.includes("Virtual") || m.to_loc.includes("Customer") || m.to_loc.includes("عملاء"));
+        const isIn = m.from_loc && (m.from_loc.includes("Virtual") || m.from_loc.includes("Vendor") || m.from_loc.includes("موردين"));
+
+        if (isOut) movesByProduct[pName].out += qty;
+        else if (isIn) movesByProduct[pName].in += qty;
+      });
+
+      return state.items.map(item => {
+        const pName = cleanText(item.name);
+        const moveData = movesByProduct[pName] || { in: 0, out: 0 };
+
+        const qtyInitial = Number(item.qtyInitial) || 0;
+        const totalIn = moveData.in;
+        const totalOut = moveData.out;
+
+        const qtyOnHand = item.qtyFinal !== undefined && item.qtyFinal !== null ? Number(item.qtyFinal) : (qtyInitial + totalIn - totalOut);
+        const actualSoldQty = totalOut > 0 ? totalOut : (Number(item.soldYr) || 0);
+
+        const unitCost = Number(item.cost) || 0;
+        const salesPrice = Number(item.price) || 0;
+        const stockValue = item.stockValue !== undefined ? Number(item.stockValue) : (qtyOnHand * unitCost);
+
+        // Turnovers & Metrics
+        const turnoverRate = qtyOnHand > 0 ? parseFloat((actualSoldQty / qtyOnHand).toFixed(2)) : (actualSoldQty > 0 ? 99 : 0);
+        const daysOfInventory = turnoverRate > 0 ? Math.round(365 / turnoverRate) : 999;
+
+        // Classification 1: Movement Status
+        let movementStatus = "راكد";
+        let badgeClass = "dead";
+        if (turnoverRate >= 4) { movementStatus = "سريع الدوران"; badgeClass = "fast"; }
+        else if (turnoverRate >= 1.5) { movementStatus = "دوران طبيعي"; badgeClass = "normal"; }
+        else if (turnoverRate > 0) { movementStatus = "بطيء الدوران"; badgeClass = "slow"; }
+
+        // Classification 2: Dynamic Price Classes
+        let priceClass = "C+";
+        if (salesPrice <= priceConfig.limitCMinus) priceClass = "C-";
+        else if (salesPrice <= priceConfig.limitCMid) priceClass = "C";
+
+        // Discount Limits Rules based on Target Margin
+        let maxDiscountPct = 0;
+        if (salesPrice > 0 && unitCost > 0) {
+          const minAllowedPrice = unitCost / (1 - state.targetMargin);
+          if (salesPrice >= minAllowedPrice) {
+            maxDiscountPct = Math.max(0, parseFloat((((salesPrice - minAllowedPrice) / salesPrice) * 100).toFixed(1)));
+          }
+        }
+        const floorPrice = parseFloat((salesPrice * (1 - (maxDiscountPct / 100))).toFixed(2));
+
+        return {
+          ...item,
+          displayName: pName,
+          category: item.cat || "عام",
+          qtyInitial,
+          totalIn,
+          totalOut,
+          qtyOnHand,
+          actualSoldQty,
+          unitCost,
+          salesPrice,
+          stockValue,
+          turnoverRate,
+          daysOfInventory,
+          movementStatus,
+          badgeClass,
+          priceClass,
+          maxDiscountPct,
+          floorPrice,
+          auditQty: item.auditQty !== undefined ? Number(item.auditQty) : null,
+          auditDate: item.auditDate || '-'
+        };
+      });
+    }
+
+    function updateDashboard() {
+      const processed = processInventoryData();
+
+      // Update KPI Cards
+      const totalVal = processed.reduce((sum, i) => sum + i.stockValue, 0);
+      const totalSold = processed.reduce((sum, i) => sum + i.actualSoldQty, 0);
+      const totalQty = processed.reduce((sum, i) => sum + i.qtyOnHand, 0);
+      const avgTurnover = totalQty > 0 ? (totalSold / totalQty).toFixed(2) : "0.0";
+      const avgDays = Number(avgTurnover) > 0 ? Math.round(365 / Number(avgTurnover)) : 0;
+
+      document.getElementById("kpiTotalValue").innerText = Math.round(totalVal).toLocaleString('en-US');
+      document.getElementById("kpiAvgTurnover").innerText = `${avgTurnover}x`;
+      document.getElementById("kpiAvgDays").innerText = avgDays;
+      document.getElementById("kpiTotalItems").innerText = processed.length.toLocaleString('en-US');
+
+      // Populate Category Dropdown Filter
+      const categories = Array.from(new Set(processed.map(i => i.category)));
+      const catSelect = document.getElementById("categoryFilter");
+      const currentCat = catSelect.value;
+      catSelect.innerHTML = `<option value="">جميع التصنيفات</option>` + categories.map(c => `<option value="${c}">${c}</option>`).join('');
+      catSelect.value = currentCat;
+
+      // Render Tables & Charts
+      renderCategorySummary(processed);
+      renderInventoryTable(processed);
+      renderAuditTable(processed);
+      renderMovesTable();
+      renderCharts(processed);
+    }
+
+    function renderCategorySummary(processed) {
+      const tbody = document.getElementById("categorySummaryBody");
+      const groups = {};
+
+      processed.forEach(i => {
+        if (!groups[i.category]) {
+          groups[i.category] = { count: 0, stockVal: 0, soldQty: 0, turnoverSum: 0 };
+        }
+        groups[i.category].count += 1;
+        groups[i.category].stockVal += i.stockValue;
+        groups[i.category].soldQty += i.actualSoldQty;
+        groups[i.category].turnoverSum += i.turnoverRate;
+      });
+
+      let html = '';
+      for (let cat in groups) {
+        const g = groups[cat];
+        const avgTurn = (g.turnoverSum / g.count).toFixed(2);
+        html += `
+          <tr>
+            <td class="p-3"><strong>${cat}</strong></td>
+            <td class="p-3 num">${g.count.toLocaleString('en-US')}</td>
+            <td class="p-3 num">${g.stockVal.toLocaleString('en-US', {maximumFractionDigits: 0})}</td>
+            <td class="p-3 num">${g.soldQty.toLocaleString('en-US')}</td>
+            <td class="p-3 num">${avgTurn}x</td>
+          </tr>
+        `;
+      }
+      tbody.innerHTML = html;
+    }
+
+    function renderInventoryTable(processed) {
+      const tbody = document.getElementById("inventoryTableBody");
+      let filtered = processed.filter(i => {
+        if (state.category && i.category !== state.category) return false;
+        if (state.movement && i.movementStatus !== state.movement) return false;
+        if (state.priceClass && i.priceClass !== state.priceClass) return false;
+        if (state.search) {
+          const q = state.search.toLowerCase();
+          if (!i.displayName.toLowerCase().includes(q)) return false;
+        }
+        return true;
+      });
+
+      filtered.sort((a, b) => {
+        let valA = a[state.sortKey];
+        let valB = b[state.sortKey];
+        if (typeof valA === 'string') {
+          return state.sortDir * valA.localeCompare(valB, 'ar');
+        }
+        return state.sortDir * ((valA || 0) - (valB || 0));
+      });
+
+      tbody.innerHTML = filtered.map(i => `
+        <tr class="hover:bg-slate-50">
+          <td class="p-3 font-semibold text-slate-900">${i.displayName}</td>
+          <td class="p-3">${i.category}</td>
+          <td class="p-3"><span class="badge price-class">${i.priceClass}</span></td>
+          <td class="p-3 num font-bold">${i.qtyOnHand.toLocaleString('en-US')}</td>
+          <td class="p-3 num">${i.actualSoldQty.toLocaleString('en-US')}</td>
+          <td class="p-3 num">${i.unitCost.toLocaleString('en-US')}</td>
+          <td class="p-3 num">${i.salesPrice.toLocaleString('en-US')}</td>
+          <td class="p-3 num font-bold text-blue-600">${i.turnoverRate}x</td>
+          <td class="p-3 num">${i.daysOfInventory > 365 ? '> 365' : i.daysOfInventory} يوم</td>
+          <td class="p-3"><span class="badge ${i.badgeClass}">${i.movementStatus}</span></td>
+          <td class="p-3 num text-amber-600 font-bold">${i.maxDiscountPct}%</td>
+          <td class="p-3 num font-bold text-emerald-700">${i.floorPrice.toLocaleString('en-US')}</td>
+          <td class="p-3 num font-bold">${i.stockValue.toLocaleString('en-US', {maximumFractionDigits: 0})}</td>
+        </tr>
+      `).join('');
+    }
+
+    function renderAuditTable(processed) {
+      const tbody = document.getElementById("auditTableBody");
+      tbody.innerHTML = processed.map(i => {
+        const computedFinal = i.qtyInitial + i.totalIn - i.totalOut;
+        const auditVal = i.auditQty;
+        let diff = 0;
+        let matchStatusHtml = '<span class="badge normal">لم يجرد بعد</span>';
+
+        if (auditVal !== null) {
+          diff = auditVal - computedFinal;
+          if (diff === 0) {
+            matchStatusHtml = '<span class="badge match">مطابق ✅</span>';
+          } else if (diff < 0) {
+            matchStatusHtml = `<span class="badge diff">عجز (${diff}) ⚠️</span>`;
+          } else {
+            matchStatusHtml = `<span class="badge match">زيادة (+${diff}) 📈</span>`;
+          }
+        }
+
+        return `
+          <tr class="hover:bg-slate-50">
+            <td class="p-3 font-semibold text-slate-900">${i.displayName}</td>
+            <td class="p-3 num">${i.qtyInitial.toLocaleString('en-US')}</td>
+            <td class="p-3 num text-emerald-600 font-semibold">${i.totalIn.toLocaleString('en-US')}</td>
+            <td class="p-3 num text-rose-600 font-semibold">${i.totalOut.toLocaleString('en-US')}</td>
+            <td class="p-3 num font-bold">${computedFinal.toLocaleString('en-US')}</td>
+            <td class="p-3 num font-bold text-blue-600">${auditVal !== null ? auditVal.toLocaleString('en-US') : '-'}</td>
+            <td class="p-3">${i.auditDate}</td>
+            <td class="p-3 num font-bold ${diff < 0 ? 'text-rose-600' : diff > 0 ? 'text-emerald-600' : 'text-slate-500'}">${diff !== 0 ? diff.toLocaleString('en-US') : '0'}</td>
+            <td class="p-3">${matchStatusHtml}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function renderMovesTable() {
+      const tbody = document.getElementById("movesTableBody");
+      let filtered = state.moves.filter(m => {
+        if (state.moveType === 'OUT') {
+          const isOut = m.to_loc && (m.to_loc.includes("Virtual") || m.to_loc.includes("Customer") || m.to_loc.includes("عملاء"));
+          if (!isOut) return false;
+        }
+        if (state.moveType === 'IN') {
+          const isIn = m.from_loc && (m.from_loc.includes("Virtual") || m.from_loc.includes("Vendor") || m.from_loc.includes("موردين"));
+          if (!isIn) return false;
+        }
+        if (state.movesSearch) {
+          const q = state.movesSearch.toLowerCase();
+          const pName = (m.product || "").toLowerCase();
+          const ref = (m.reference || "").toLowerCase();
+          if (!pName.includes(q) && !ref.includes(q)) return false;
+        }
+        return true;
+      });
+
+      tbody.innerHTML = filtered.slice(0, 300).map(m => {
+        const isOut = m.to_loc && (m.to_loc.includes("Virtual") || m.to_loc.includes("Customer") || m.to_loc.includes("عملاء"));
+        const badgeClass = isOut ? 'badge out' : 'badge in';
+        const moveTypeText = isOut ? 'صرف / مبيعات' : 'إضافة / توريد';
+
+        return `
+          <tr class="hover:bg-slate-50">
+            <td class="p-3 num">${m.date || '-'}</td>
+            <td class="p-3 font-medium text-slate-700">${m.reference || '-'}</td>
+            <td class="p-3 font-semibold text-slate-900">${cleanText(m.product)}</td>
+            <td class="p-3 text-slate-500">${m.from_loc || '-'}</td>
+            <td class="p-3 text-slate-500">${m.to_loc || '-'}</td>
+            <td class="p-3 num font-bold">${Math.abs(Number(m.qty) || 0).toLocaleString('en-US')}</td>
+            <td class="p-3 text-slate-500">${m.uom || 'الوحدة'}</td>
+            <td class="p-3"><span class="${badgeClass}">${moveTypeText}</span></td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function renderCharts(processed) {
+      // Chart 1: Movement Status
+      const moveCounts = { 'سريع الدوران': 0, 'دوران طبيعي': 0, 'بطيء الدوران': 0, 'راكد': 0 };
+      processed.forEach(i => { moveCounts[i.movementStatus] = (moveCounts[i.movementStatus] || 0) + 1; });
+
+      if (doughnutChartInstance) doughnutChartInstance.destroy();
+      doughnutChartInstance = new Chart(document.getElementById("doughnutChart"), {
+        type: 'doughnut',
+        data: {
+          labels: ['سريع الدوران', 'دوران طبيعي', 'بطيء الدوران', 'راكد'],
+          datasets: [{
+            data: [moveCounts['سريع الدوران'], moveCounts['دوران طبيعي'], moveCounts['بطيء الدوران'], moveCounts['راكد']],
+            backgroundColor: ['#16a34a', '#2563eb', '#d97706', '#dc2626']
+          }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+      });
+
+      // Chart 2: Price Classes
+      const priceCounts = { 'C-': 0, 'C': 0, 'C+': 0 };
+      processed.forEach(i => { priceCounts[i.priceClass] = (priceCounts[i.priceClass] || 0) + 1; });
+
+      if (priceDoughnutChartInstance) priceDoughnutChartInstance.destroy();
+      priceDoughnutChartInstance = new Chart(document.getElementById("priceDoughnutChart"), {
+        type: 'doughnut',
+        data: {
+          labels: ['فئة C- (اقتصادي)', 'فئة C (متوسط)', 'فئة C+ (مرتفع)'],
+          datasets: [{
+            data: [priceCounts['C-'], priceCounts['C'], priceCounts['C+']],
+            backgroundColor: ['#9333ea', '#2563eb', '#16a34a']
+          }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+      });
+
+      // Chart 3: Top Selling
+      const topSold = [...processed].sort((a, b) => b.actualSoldQty - a.actualSoldQty).slice(0, 5);
+      if (barChartInstance) barChartInstance.destroy();
+      barChartInstance = new Chart(document.getElementById("barChart"), {
+        type: 'bar',
+        data: {
+          labels: topSold.map(i => i.displayName.length > 15 ? i.displayName.slice(0,15) + '...' : i.displayName),
+          datasets: [{
+            label: 'المبيعات الفعلية',
+            data: topSold.map(i => i.actualSoldQty),
+            backgroundColor: '#2563eb'
+          }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+      });
+    }
+
+    // Excel / Sheet Upload Handling
+    function parseExcelFile(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const firstSheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[firstSheetName];
+            const json = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+            resolve(json);
+          } catch (err) { reject(err); }
+        };
+        reader.onerror = (err) => reject(err);
+        reader.readAsArrayBuffer(file);
+      });
+    }
+
+    async function handleFileUpload(fileInputId, type) {
+      const fileInput = document.getElementById(fileInputId);
+      if (!fileInput.files || fileInput.files.length === 0) return;
+
+      setUploadLoading(true, "⏳ جاري قراءة وتحليل بيانات الملف...");
+
+      try {
+        if (type === 'moves') {
+          let allMoves = [];
+          for (let file of fileInput.files) {
+            const rows = await parseExcelFile(file);
+            const parsed = rows.map(r => ({
+              date: getVal(r, ['التاريخ', 'Date', 'date', 'Creation Date']) || new Date().toISOString().split('T')[0],
+              reference: cleanText(getVal(r, ['المرجع', 'Reference', 'reference', 'Source Document', 'Sequence'])),
+              product: cleanText(getVal(r, ['المنتج', 'Product', 'product', 'Item', 'اسم المنتج'])),
+              from_loc: cleanText(getVal(r, ['من', 'From', 'from_loc', 'Source Location'])),
+              to_loc: cleanText(getVal(r, ['إلى', 'To', 'to_loc', 'Destination Location'])),
+              qty: Math.abs(Number(getVal(r, ['الكمية', 'Quantity', 'qty', 'Demand', 'Done'])) || 0),
+              uom: cleanText(getVal(r, ['وحدة القياس', 'UoM', 'Unit of Measure', 'uom'])) || 'الوحدة'
+            })).filter(m => m.product);
+            allMoves = allMoves.concat(parsed);
+          }
+
+          if (supabaseClient) {
+            setUploadLoading(true, `⏳ جاري رفع ${allMoves.length} حركة للسحابة...`);
+            await batchUpsert("stock_moves", allMoves);
+          }
+          state.moves = allMoves;
+
+        } else {
+          const file = fileInput.files[0];
+          const rows = await parseExcelFile(file);
+          const itemsMap = {};
+
+          state.items.forEach(i => { itemsMap[cleanText(i.name)] = { ...i }; });
+
+          rows.forEach(r => {
+            const pName = cleanText(getVal(r, ['المنتج', 'Product', 'product', 'Item', 'اسم المنتج', 'Display Name']));
+            if (!pName) return;
+
+            if (!itemsMap[pName]) {
+              itemsMap[pName] = { name: pName, cat: "عام", cost: 0, price: 0, qtyInitial: 0, qtyFinal: 0, soldYr: 0 };
+            }
+
+            if (type === 'invInitial') {
+              itemsMap[pName].qtyInitial = Number(getVal(r, ['الكمية', 'Quantity', 'Initial', 'رصيد اول', 'رصيد أول المدة'])) || 0;
+            } else if (type === 'invFinal') {
+              itemsMap[pName].qtyFinal = Number(getVal(r, ['الكمية', 'Quantity', 'Final', 'رصيد آخر', 'On Hand'])) || 0;
+            } else if (type === 'audit') {
+              itemsMap[pName].auditQty = Number(getVal(r, ['الجرد الفعلي', 'Counted', 'Audit Qty', 'الكمية الفعليه'])) || 0;
+              itemsMap[pName].auditDate = getVal(r, ['تاريخ الجرد', 'Date', 'Audit Date']) || new Date().toISOString().split('T')[0];
+            } else if (type === 'valuation') {
+              itemsMap[pName].cost = Number(getVal(r, ['التكلفة', 'Cost', 'Unit Cost', 'تكلفة الوحدة'])) || itemsMap[pName].cost;
+              itemsMap[pName].price = Number(getVal(r, ['السعر', 'Price', 'Sales Price', 'سعر البيع'])) || itemsMap[pName].price;
+              itemsMap[pName].cat = cleanText(getVal(r, ['الفئة', 'Category', 'Internal Category'])) || itemsMap[pName].cat;
+              itemsMap[pName].stockValue = Number(getVal(r, ['القيمة الإجمالية', 'Total Value', 'Value'])) || (itemsMap[pName].cost * itemsMap[pName].qtyFinal);
+            }
+          });
+
+          state.items = Object.values(itemsMap);
+          if (supabaseClient) {
+            setUploadLoading(true, `⏳ جاري حفظ الأصناف بالسحابة...`);
+            await batchUpsert("inventory_items", state.items);
+          }
+        }
+
+        updateDashboard();
+        alert("تم معالجة ورفع الملف بنجاح! ✅");
+      } catch (err) {
+        alert("حدث خطأ أثناء رفع ومعالجة الملف: " + err.message);
+      } finally {
+        setUploadLoading(false);
+        fileInput.value = "";
+      }
+    }
+
+    // Event Listeners for Filters & Inputs
+    document.getElementById("targetMarginInput").addEventListener("input", (e) => {
+      state.targetMargin = (Number(e.target.value) || 0) / 100;
       updateDashboard();
     });
-  });
+    document.getElementById("priceClassFilter").addEventListener("change", (e) => { state.priceClass = e.target.value; updateDashboard(); });
+    document.getElementById("movementFilter").addEventListener("change", (e) => { state.movement = e.target.value; updateDashboard(); });
+    document.getElementById("categoryFilter").addEventListener("change", (e) => { state.category = e.target.value; updateDashboard(); });
+    document.getElementById("searchInput").addEventListener("input", (e) => { state.search = e.target.value; updateDashboard(); });
+    document.getElementById("movesSearchInput").addEventListener("input", (e) => { state.movesSearch = e.target.value; renderMovesTable(); });
+    document.getElementById("moveTypeFilter").addEventListener("change", (e) => { state.moveType = e.target.value; renderMovesTable(); });
 
-  // Modals Management
-  window.openSettingsModal = () => document.getElementById("settingsModal").classList.add("active");
-  window.closeSettingsModal = () => document.getElementById("settingsModal").classList.remove("active");
+    // Sorting Table
+    document.querySelectorAll("th[data-key]").forEach(th => {
+      th.addEventListener("click", () => {
+        const key = th.dataset.key;
+        if (state.sortKey === key) {
+          state.sortDir *= -1;
+        } else {
+          state.sortKey = key;
+          state.sortDir = -1;
+        }
+        updateDashboard();
+      });
+    });
 
-  window.openPasswordModal = () => {
-    document.getElementById("modalPasswordInput").value = "";
-    document.getElementById("passwordModal").classList.add("active");
-  };
-  window.closePasswordModal = () => document.getElementById("passwordModal").classList.remove("active");
+    // Modal Logic & Locks
+    window.openSettingsModal = function() { document.getElementById("settingsModal").classList.add("active"); };
+    window.closeSettingsModal = function() { document.getElementById("settingsModal").classList.remove("active"); };
 
-  window.openMasterLockModal = (target) => {
-    activeUnlockTarget = target;
-    document.getElementById("masterPasswordInput").value = "";
-    document.getElementById("masterLockModal").classList.add("active");
-  };
-  window.closeMasterLockModal = () => document.getElementById("masterLockModal").classList.remove("active");
-
-  document.getElementById("unlockCloudBtn").addEventListener("click", () => openMasterLockModal('cloud'));
-  document.getElementById("unlockPriceLimitsBtn").addEventListener("click", () => openMasterLockModal('price'));
-
-  document.getElementById("confirmMasterPasswordBtn").addEventListener("click", () => {
-    const pass = document.getElementById("masterPasswordInput").value;
-    if (pass !== MASTER_PASSWORD) {
-      alert("كلمة السر الرئيسية غير صحيحة!");
-      return;
+    function requestPassword(targetSection) {
+      activeUnlockTarget = targetSection;
+      document.getElementById("masterPasswordInput").value = "";
+      document.getElementById("masterLockModal").classList.add("active");
     }
-    closeMasterLockModal();
-    if (activeUnlockTarget === 'cloud') {
-      document.getElementById("protectedCloudSection").classList.remove("hidden");
-      document.getElementById("unlockCloudBtn").classList.add("hidden");
-    } else if (activeUnlockTarget === 'price') {
-      document.getElementById("protectedPriceSection").classList.remove("hidden");
-      document.getElementById("unlockPriceLimitsBtn").classList.add("hidden");
+    window.closeMasterLockModal = function() { document.getElementById("masterLockModal").classList.remove("active"); };
+
+    document.getElementById("unlockPriceLimitsBtn").addEventListener("click", () => requestPassword('price'));
+    document.getElementById("unlockCloudBtn").addEventListener("click", () => requestPassword('cloud'));
+
+    document.getElementById("confirmMasterPasswordBtn").addEventListener("click", () => {
+      const pass = document.getElementById("masterPasswordInput").value;
+      if (pass === MASTER_PASSWORD) {
+        closeMasterLockModal();
+        if (activeUnlockTarget === 'price') {
+          document.getElementById("protectedPriceSection").classList.remove("hidden");
+          document.getElementById("unlockPriceLimitsBtn").classList.add("hidden");
+        } else if (activeUnlockTarget === 'cloud') {
+          document.getElementById("protectedCloudSection").classList.remove("hidden");
+          document.getElementById("unlockCloudBtn").classList.add("hidden");
+        }
+      } else {
+        alert("كلمة السر غير صحيحة!");
+      }
+    });
+
+    document.getElementById("savePriceLimitsBtn").addEventListener("click", () => {
+      priceConfig.limitCMinus = Number(document.getElementById("ruleCMinusMax").value) || 300;
+      priceConfig.limitCMid = Number(document.getElementById("ruleCMax").value) || 550;
+      localStorage.setItem("limit_c_minus", priceConfig.limitCMinus);
+      localStorage.setItem("limit_c_mid", priceConfig.limitCMid);
+      updateDashboard();
+      alert("تم حفظ وتطبيق حدود الفئات السعرية الجديدة بنجاح! ✅");
+    });
+
+    document.getElementById("connectBtn").addEventListener("click", async () => {
+      const connected = await initSupabase();
+      if (connected) alert("تم الحفظ والاتصال بنجاح!");
+    });
+
+    // Upload Button Trigger Bindings
+    function bindUploadTrigger(btnId, fileInputId, uploadType) {
+      document.getElementById(btnId).addEventListener("click", () => {
+        pendingUploadType = { fileInputId, uploadType };
+        document.getElementById("modalPasswordInput").value = "";
+        document.getElementById("passwordModal").classList.add("active");
+      });
     }
-  });
 
-  document.getElementById("connectBtn").addEventListener("click", async () => {
-    await initSupabase();
-  });
+    window.closePasswordModal = function() { document.getElementById("passwordModal").classList.remove("active"); };
 
-  document.getElementById("savePriceLimitsBtn").addEventListener("click", () => {
-    priceConfig.limitCMinus = Number(document.getElementById("ruleCMinusMax").value) || 300;
-    priceConfig.limitCMid = Number(document.getElementById("ruleCMax").value) || 550;
-    localStorage.setItem("limit_c_minus", priceConfig.limitCMinus);
-    localStorage.setItem("limit_c_mid", priceConfig.limitCMid);
-    alert("تم حفظ قواعد الفئات السعرية بنجاح!");
-    updateDashboard();
-  });
+    document.getElementById("confirmPasswordBtn").addEventListener("click", () => {
+      const pass = document.getElementById("modalPasswordInput").value;
+      const uploadPass = document.getElementById("uploadPasswordInput").value || "123456";
+      const adminPass = document.getElementById("adminPasswordInput").value || MASTER_PASSWORD;
 
-  // Initial connection on load
-  window.addEventListener("DOMContentLoaded", async () => {
+      if (pass === uploadPass || pass === adminPass || pass === MASTER_PASSWORD) {
+        closePasswordModal();
+        if (pendingUploadType) {
+          document.getElementById(pendingUploadType.fileInputId).click();
+        }
+      } else {
+        alert("كلمة السر غير صحيحة!");
+      }
+    });
+
+    bindUploadTrigger("uploadInvInitialBtn", "fileInputInvInitial", "invInitial");
+    bindUploadTrigger("uploadInvFinalBtn", "fileInputInvFinal", "invFinal");
+    bindUploadTrigger("uploadAuditBtn", "fileInputAudit", "audit");
+    bindUploadTrigger("uploadValuationBtn", "fileInputValuation", "valuation");
+    bindUploadTrigger("uploadMovesBtn", "fileInputMoves", "moves");
+
+    document.getElementById("fileInputInvInitial").addEventListener("change", () => handleFileUpload("fileInputInvInitial", "invInitial"));
+    document.getElementById("fileInputInvFinal").addEventListener("change", () => handleFileUpload("fileInputInvFinal", "invFinal"));
+    document.getElementById("fileInputAudit").addEventListener("change", () => handleFileUpload("fileInputAudit", "audit"));
+    document.getElementById("fileInputValuation").addEventListener("change", () => handleFileUpload("fileInputValuation", "valuation"));
+    document.getElementById("fileInputMoves").addEventListener("change", () => handleFileUpload("fileInputMoves", "moves"));
+
+    // Initial Startup
     syncPriceRuleInputs();
-    await initSupabase();
-  });
+    initSupabase();
+    updateDashboard();
 
-})();
-</script>
+  })();
+  </script>
 </body>
 </html>
