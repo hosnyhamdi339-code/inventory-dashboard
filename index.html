@@ -4,18 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>لوحة التحكم الاحترافية لإدارة وتقييم المخزون</title>
-
   <!-- External Libraries: Tailwind CSS, Chart.js, XLSX, Supabase -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
   <!-- Google Fonts: Cairo & Inter -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-
   <style>
     :root {
       --primary: #2563eb;
@@ -29,7 +26,6 @@
       --warning: #d97706;
       --success: #16a34a;
     }
-
     body {
       font-family: 'Cairo', 'Inter', sans-serif;
       background-color: var(--bg-main);
@@ -38,46 +34,24 @@
       padding: 0;
       -webkit-font-smoothing: antialiased;
     }
-
-    .num {
-      font-family: 'Inter', sans-serif;
-      direction: ltr;
-      display: inline-block;
-    }
-
-    .nav-btn.active {
-      background-color: var(--primary);
-      color: white;
-      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
-    }
-
-    .tab-content {
-      display: none;
-    }
-    .tab-content.active {
-      display: block;
-    }
-
+    /* NOTE: this must NEVER set display:inline-block -- doing so on a <td class="num">
+       breaks it out of the table's column-grid layout (the cell shrinks to its content's
+       width instead of the column's width), which is exactly what caused the "all values
+       piled into the first column" bug reported with real, large datasets. unicode-bidi
+       isolates the digit run's LTR order without touching box layout at all. */
+    .num { font-family: 'Inter', sans-serif; direction: ltr; unicode-bidi: isolate; }
+    .nav-btn.active { background-color: var(--primary); color: white; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25); }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
     .modal {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background-color: rgba(15, 23, 42, 0.6);
-      backdrop-filter: blur(4px);
-      z-index: 50;
-      align-items: center;
-      justify-content: center;
+      display: none; position: fixed; inset: 0; background-color: rgba(15, 23, 42, 0.6);
+      backdrop-filter: blur(4px); z-index: 50; align-items: center; justify-content: center; padding: 1rem;
+      overflow-y: auto;
     }
-    .modal.active {
-      display: flex;
-    }
-
+    .modal.active { display: flex; }
     .badge {
-      padding: 0.25rem 0.625rem;
-      border-radius: 9999px;
-      font-size: 0.75rem;
-      font-weight: 700;
-      display: inline-block;
+      padding: 0.25rem 0.625rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700;
+      display: inline-block; white-space: nowrap;
     }
     .badge.fast { background-color: #dcfce7; color: #15803d; }
     .badge.normal { background-color: #dbeafe; color: #1e40af; }
@@ -86,41 +60,40 @@
     .badge.price-class { background-color: #f3e8ff; color: #7e22ce; }
     .badge.match { background-color: #dcfce7; color: #15803d; }
     .badge.diff { background-color: #fee2e2; color: #b91c1c; }
+    .badge.pending { background-color: #f1f5f9; color: #475569; }
     .badge.in { background-color: #dcfce7; color: #15803d; }
     .badge.out { background-color: #fee2e2; color: #b91c1c; }
-
+    .badge.transfer { background-color: #e0e7ff; color: #3730a3; }
+    .badge.scrap { background-color: #fce7f3; color: #9d174d; }
+    .badge.unknown { background-color: #f1f5f9; color: #64748b; }
+    .badge.warn { background-color: #fef3c7; color: #92400e; }
     .loader {
-      border: 3px solid #f3f3f3;
-      border-top: 3px solid var(--primary);
-      border-radius: 50%;
-      width: 24px;
-      height: 24px;
-      animation: spin 1s linear infinite;
+      border: 3px solid #f3f3f3; border-top: 3px solid var(--primary); border-radius: 50%;
+      width: 24px; height: 24px; animation: spin 1s linear infinite; flex-shrink: 0;
     }
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .table-container::-webkit-scrollbar { height: 8px; width: 8px; }
+    .table-container::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    .table-container::-webkit-scrollbar-track { background: #f1f5f9; }
+    .th-sort { user-select: none; }
+    .th-sort .arrow { opacity: .35; font-size: 10px; margin-inline-start: 2px; }
+    .th-sort.sorted .arrow { opacity: 1; color: var(--primary); }
+    textarea.mono, input.mono { font-family: 'Inter', monospace; direction: ltr; text-align: left; }
+    .header-chip {
+      display: inline-block; background:#eef2ff; color:#3730a3; border:1px solid #c7d2fe;
+      border-radius:8px; padding:2px 8px; font-size:11px; margin:2px; font-weight:600;
     }
-
-    /* Table custom scrollbar */
-    .table-container::-webkit-scrollbar {
-      height: 8px;
-      width: 8px;
+    .load-more-btn {
+      width: 100%; padding: 0.6rem; font-size: 0.75rem; font-weight: 700; color: var(--primary);
+      background: #eff6ff; border-top: 1px solid #dbeafe; cursor: pointer;
     }
-    .table-container::-webkit-scrollbar-thumb {
-      background: #cbd5e1;
-      border-radius: 4px;
-    }
-    .table-container::-webkit-scrollbar-track {
-      background: #f1f5f9;
-    }
+    .load-more-btn:hover { background: #dbeafe; }
   </style>
 </head>
 <body class="min-h-screen flex flex-col">
-
   <!-- Header -->
   <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3 flex-wrap">
       <div class="flex items-center gap-3">
         <div class="bg-blue-600 text-white p-2 rounded-xl shadow-md">
           <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
@@ -130,16 +103,12 @@
           <p class="text-xs text-slate-500">التحليل المالي، الفئات السعرية والجرد</p>
         </div>
       </div>
-
-      <!-- Navigation Tabs -->
-      <nav class="flex items-center bg-slate-100 p-1 rounded-xl gap-1">
+      <nav class="flex items-center bg-slate-100 p-1 rounded-xl gap-1 flex-wrap">
         <button onclick="switchTab('dashboard')" id="nav-dashboard" class="nav-btn active px-4 py-2 rounded-lg text-xs md:text-sm font-semibold transition-all">الرئيسية والتحليلات</button>
         <button onclick="switchTab('inventory')" id="nav-inventory" class="nav-btn px-4 py-2 rounded-lg text-xs md:text-sm font-semibold transition-all">جدول المخزون</button>
         <button onclick="switchTab('audit')" id="nav-audit" class="nav-btn px-4 py-2 rounded-lg text-xs md:text-sm font-semibold transition-all">مطابقة الجرد</button>
         <button onclick="switchTab('moves')" id="nav-moves" class="nav-btn px-4 py-2 rounded-lg text-xs md:text-sm font-semibold transition-all">سجل الحركات</button>
       </nav>
-
-      <!-- Action Buttons -->
       <div class="flex items-center gap-2">
         <button onclick="openSettingsModal()" class="p-2 text-slate-600 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition-all" title="الإعدادات والقواعد">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
@@ -147,47 +116,26 @@
       </div>
     </div>
   </header>
-
-  <!-- Upload Loading Bar Overlay -->
-  <div id="uploadLoader" class="hidden bg-blue-50 border-b border-blue-200 p-3 px-8 flex items-center justify-between">
-    <div class="flex items-center gap-3">
-      <div class="loader"></div>
-      <span id="uploadStatusText" class="text-sm font-semibold text-blue-800">جاري معالجة البيانات...</span>
-    </div>
+  <!-- Upload / Sync Loading Bar -->
+  <div id="uploadLoader" class="hidden bg-blue-50 border-b border-blue-200 p-3 px-8 flex items-center gap-3">
+    <div class="loader"></div>
+    <span id="uploadStatusText" class="text-sm font-semibold text-blue-800">جاري معالجة البيانات...</span>
   </div>
-
-  <!-- Main Content Container -->
   <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-
     <!-- Global Controls & Quick Uploads Bar -->
     <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-4">
-      <!-- Dynamic Target Margin Input -->
       <div class="flex items-center gap-3 bg-slate-50 p-2 px-3 rounded-xl border border-slate-200">
         <label for="targetMarginInput" class="text-xs font-bold text-slate-700">هامش الربح المستهدف (%):</label>
         <input type="number" id="targetMarginInput" value="40" min="0" max="100" class="w-16 p-1 border border-slate-300 rounded text-center text-xs font-bold focus:ring-2 focus:ring-blue-500 outline-none">
       </div>
-
-      <!-- Quick Upload Buttons (Protected by Password) -->
       <div class="flex flex-wrap items-center gap-2">
-        <button id="uploadInvInitialBtn" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2 px-3 rounded-xl transition-all flex items-center gap-1">
-          📥 رصيد أول المدة
-        </button>
-        <button id="uploadInvFinalBtn" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2 px-3 rounded-xl transition-all flex items-center gap-1">
-          📥 رصيد آخر المدة
-        </button>
-        <button id="uploadAuditBtn" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2 px-3 rounded-xl transition-all flex items-center gap-1">
-          📋 جرد فعلي
-        </button>
-        <button id="uploadValuationBtn" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2 px-3 rounded-xl transition-all flex items-center gap-1">
-          💰 تكاليف وأسعار
-        </button>
-        <button id="uploadMovesBtn" class="bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold py-2 px-3 rounded-xl border border-blue-200 transition-all flex items-center gap-1">
-          🔄 رفع حركات المخزون
-        </button>
+        <button id="uploadInvInitialBtn" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2 px-3 rounded-xl transition-all flex items-center gap-1">📥 رصيد أول المدة</button>
+        <button id="uploadInvFinalBtn" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2 px-3 rounded-xl transition-all flex items-center gap-1">📥 رصيد آخر المدة</button>
+        <button id="uploadAuditBtn" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2 px-3 rounded-xl transition-all flex items-center gap-1">📋 جرد فعلي</button>
+        <button id="uploadValuationBtn" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2 px-3 rounded-xl transition-all flex items-center gap-1">💰 تكاليف وأسعار</button>
+        <button id="uploadMovesBtn" class="bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold py-2 px-3 rounded-xl border border-blue-200 transition-all flex items-center gap-1">🔄 رفع حركات المخزون</button>
       </div>
     </div>
-
-    <!-- Hidden Inputs for File Uploads -->
     <input type="file" id="fileInputInvInitial" accept=".xlsx, .xls, .csv" class="hidden">
     <input type="file" id="fileInputInvFinal" accept=".xlsx, .xls, .csv" class="hidden">
     <input type="file" id="fileInputAudit" accept=".xlsx, .xls, .csv" class="hidden">
@@ -196,19 +144,16 @@
 
     <!-- TAB 1: DASHBOARD & ANALYTICS -->
     <div id="tab-dashboard" class="tab-content active space-y-6">
-      <!-- KPI Cards Grid -->
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
           <div>
             <p class="text-xs font-semibold text-slate-500">إجمالي قيمة المخزون الحالية</p>
             <h3 class="text-2xl font-bold text-slate-900 mt-1 num" id="kpiTotalValue">0</h3>
-            <span class="text-xs text-slate-400 font-medium">ريال سعودي</span>
           </div>
           <div class="bg-blue-50 p-3 rounded-xl text-blue-600">
             <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
           </div>
         </div>
-
         <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
           <div>
             <p class="text-xs font-semibold text-slate-500">معدل دوران المخزون العام</p>
@@ -219,7 +164,6 @@
             <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
           </div>
         </div>
-
         <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
           <div>
             <p class="text-xs font-semibold text-slate-500">متوسط أيام التغطية (DIO)</p>
@@ -230,7 +174,6 @@
             <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
           </div>
         </div>
-
         <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
           <div>
             <p class="text-xs font-semibold text-slate-500">عدد الأصناف في المخزن</p>
@@ -243,34 +186,28 @@
         </div>
       </div>
 
-      <!-- Charts Row -->
+      <!-- Data-quality banner: surfaced whenever the smart parser had to guess -->
+      <div id="dataQualityBanner" class="hidden bg-amber-50 border border-amber-200 text-amber-800 text-xs font-semibold rounded-2xl p-4"></div>
+
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
           <h4 class="text-sm font-bold text-slate-800 mb-4">توزيع الأصناف حسب حركة الدوران</h4>
-          <div class="relative h-64">
-            <canvas id="doughnutChart"></canvas>
-          </div>
+          <div class="relative h-64"><canvas id="doughnutChart"></canvas></div>
         </div>
-
         <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
           <h4 class="text-sm font-bold text-slate-800 mb-4">توزيع الأصناف حسب الفئة السعرية (C-, C, C+)</h4>
-          <div class="relative h-64">
-            <canvas id="priceDoughnutChart"></canvas>
-          </div>
+          <div class="relative h-64"><canvas id="priceDoughnutChart"></canvas></div>
         </div>
-
         <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
           <h4 class="text-sm font-bold text-slate-800 mb-4">أعلى الأصناف مبيعاً (كميات)</h4>
-          <div class="relative h-64">
-            <canvas id="barChart"></canvas>
-          </div>
+          <div class="relative h-64"><canvas id="barChart"></canvas></div>
         </div>
       </div>
 
-      <!-- Group Summary Table -->
       <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div class="p-4 border-b border-slate-200 bg-slate-50">
+        <div class="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between gap-2 flex-wrap">
           <h4 class="text-sm font-bold text-slate-800">ملخص المخزون حسب التصنيفات الفئوية</h4>
+          <button id="exportCategorySummaryBtn" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold py-1.5 px-3 rounded-lg border border-emerald-200 transition-all">⬇️ تصدير Excel</button>
         </div>
         <div class="table-container overflow-x-auto">
           <table class="w-full text-right text-xs">
@@ -283,9 +220,7 @@
                 <th class="p-3">متوسط معدل الدوران</th>
               </tr>
             </thead>
-            <tbody id="categorySummaryBody" class="divide-y divide-slate-200">
-              <!-- Rendered via JS -->
-            </tbody>
+            <tbody id="categorySummaryBody" class="divide-y divide-slate-200"></tbody>
           </table>
         </div>
       </div>
@@ -293,15 +228,12 @@
 
     <!-- TAB 2: INVENTORY MAIN TABLE -->
     <div id="tab-inventory" class="tab-content space-y-4">
-      <!-- Search & Filters Bar -->
       <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4">
         <div class="flex flex-wrap items-center gap-3">
           <input type="text" id="searchInput" placeholder="بحث باسم الصنف..." class="p-2 border border-slate-300 rounded-xl text-xs w-64 focus:ring-2 focus:ring-blue-500 outline-none">
-          
           <select id="categoryFilter" class="p-2 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none">
             <option value="">جميع التصنيفات</option>
           </select>
-
           <select id="movementFilter" class="p-2 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none">
             <option value="">جميع حالات الدوران</option>
             <option value="سريع الدوران">سريع الدوران</option>
@@ -309,58 +241,54 @@
             <option value="بطيء الدوران">بطيء الدوران</option>
             <option value="راكد">راكد</option>
           </select>
-
           <select id="priceClassFilter" class="p-2 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none">
             <option value="">جميع الفئات السعرية</option>
-            <option value="C-">C- (حتى 300 ريال)</option>
-            <option value="C">C (300 - 550 ريال)</option>
-            <option value="C+">C+ (أعلى من 550 ريال)</option>
+            <option value="C-">C- (اقتصادي)</option>
+            <option value="C">C (متوسط)</option>
+            <option value="C+">C+ (مرتفع)</option>
           </select>
         </div>
-
-        <div class="text-xs text-slate-500 font-semibold">
-          * يمكنك الضغط على رؤوس الأعمدة للترتيب
+        <div class="flex items-center gap-3">
+          <div id="inventoryCountLabel" class="text-xs text-slate-500 font-semibold"></div>
+          <button id="exportInventoryBtn" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold py-2 px-3 rounded-xl border border-emerald-200 transition-all">⬇️ تصدير Excel</button>
         </div>
       </div>
-
-      <!-- Detailed Table -->
       <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div class="table-container overflow-x-auto max-h-[650px]">
           <table class="w-full text-right text-xs">
             <thead class="bg-slate-100 text-slate-700 font-bold sticky top-0 z-10 border-b border-slate-200">
               <tr>
-                <th class="p-3 cursor-pointer hover:bg-slate-200" data-key="displayName">الصنف ⇕</th>
-                <th class="p-3 cursor-pointer hover:bg-slate-200" data-key="category">الفئة ⇕</th>
-                <th class="p-3 cursor-pointer hover:bg-slate-200" data-key="priceClass">الفئة السعرية ⇕</th>
-                <th class="p-3 cursor-pointer hover:bg-slate-200" data-key="qtyOnHand">المخزون الحالي ⇕</th>
-                <th class="p-3 cursor-pointer hover:bg-slate-200" data-key="actualSoldQty">المبيعات الفعلية ⇕</th>
-                <th class="p-3 cursor-pointer hover:bg-slate-200" data-key="unitCost">التكلفة ⇕</th>
-                <th class="p-3 cursor-pointer hover:bg-slate-200" data-key="salesPrice">سعر البيع ⇕</th>
-                <th class="p-3 cursor-pointer hover:bg-slate-200" data-key="turnoverRate">معدل الدوران ⇕</th>
-                <th class="p-3 cursor-pointer hover:bg-slate-200" data-key="daysOfInventory">أيام التغطية ⇕</th>
-                <th class="p-3 cursor-pointer hover:bg-slate-200" data-key="movementStatus">الحركة ⇕</th>
-                <th class="p-3 cursor-pointer hover:bg-slate-200" data-key="maxDiscountPct">أقصى خصم ⇕</th>
-                <th class="p-3 cursor-pointer hover:bg-slate-200" data-key="floorPrice">حد السعر الأدنى ⇕</th>
-                <th class="p-3 cursor-pointer hover:bg-slate-200" data-key="stockValue">إجمالي القيمة ⇕</th>
+                <th class="p-3 cursor-pointer hover:bg-slate-200 th-sort" data-key="displayName">الصنف<span class="arrow">⇕</span></th>
+                <th class="p-3 cursor-pointer hover:bg-slate-200 th-sort" data-key="category">الفئة<span class="arrow">⇕</span></th>
+                <th class="p-3 cursor-pointer hover:bg-slate-200 th-sort" data-key="priceClass">الفئة السعرية<span class="arrow">⇕</span></th>
+                <th class="p-3 cursor-pointer hover:bg-slate-200 th-sort" data-key="qtyOnHand">المخزون الحالي<span class="arrow">⇕</span></th>
+                <th class="p-3 cursor-pointer hover:bg-slate-200 th-sort" data-key="actualSoldQty">المبيعات الفعلية<span class="arrow">⇕</span></th>
+                <th class="p-3 cursor-pointer hover:bg-slate-200 th-sort" data-key="unitCost">التكلفة<span class="arrow">⇕</span></th>
+                <th class="p-3 cursor-pointer hover:bg-slate-200 th-sort" data-key="salesPrice">سعر البيع<span class="arrow">⇕</span></th>
+                <th class="p-3 cursor-pointer hover:bg-slate-200 th-sort" data-key="turnoverRate">معدل الدوران<span class="arrow">⇕</span></th>
+                <th class="p-3 cursor-pointer hover:bg-slate-200 th-sort" data-key="daysOfInventory">أيام التغطية<span class="arrow">⇕</span></th>
+                <th class="p-3 cursor-pointer hover:bg-slate-200 th-sort" data-key="movementStatus">حالة الحركة<span class="arrow">⇕</span></th>
+                <th class="p-3 cursor-pointer hover:bg-slate-200 th-sort" data-key="maxDiscountPct">أقصى خصم<span class="arrow">⇕</span></th>
+                <th class="p-3 cursor-pointer hover:bg-slate-200 th-sort" data-key="floorPrice">حد السعر الأدنى<span class="arrow">⇕</span></th>
+                <th class="p-3 cursor-pointer hover:bg-slate-200 th-sort" data-key="stockValue">إجمالي القيمة<span class="arrow">⇕</span></th>
               </tr>
             </thead>
-            <tbody id="inventoryTableBody" class="divide-y divide-slate-200">
-              <!-- Rendered via JS -->
-            </tbody>
+            <tbody id="inventoryTableBody" class="divide-y divide-slate-200"></tbody>
           </table>
+          <div id="inventoryLoadMoreRow"></div>
         </div>
       </div>
     </div>
 
     <!-- TAB 3: AUDIT & RECONCILIATION -->
     <div id="tab-audit" class="tab-content space-y-4">
-      <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+      <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between flex-wrap gap-2">
         <div>
           <h3 class="text-sm font-bold text-slate-800">تقرير المطابقة والجرد الفعلي</h3>
-          <p class="text-xs text-slate-500">يقارن بين (رصيد أول + الوارد - المنصرف) والجرد الفعلي بالمستودع</p>
+          <p class="text-xs text-slate-500">يقارن بين (رصيد أول + الوارد − المنصرف) والجرد الفعلي، بناءً على حركات المخزون الخاصة بموقع المخزن المدقق فقط (راجع الإعدادات)</p>
         </div>
+        <button id="exportAuditBtn" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold py-2 px-3 rounded-xl border border-emerald-200 transition-all whitespace-nowrap">⬇️ تصدير Excel</button>
       </div>
-
       <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div class="table-container overflow-x-auto">
           <table class="w-full text-right text-xs">
@@ -377,9 +305,7 @@
                 <th class="p-3">حالة المطابقة</th>
               </tr>
             </thead>
-            <tbody id="auditTableBody" class="divide-y divide-slate-200">
-              <!-- Rendered via JS -->
-            </tbody>
+            <tbody id="auditTableBody" class="divide-y divide-slate-200"></tbody>
           </table>
         </div>
       </div>
@@ -388,19 +314,22 @@
     <!-- TAB 4: STOCK MOVES LOG -->
     <div id="tab-moves" class="tab-content space-y-4">
       <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4">
-        <div class="flex items-center gap-3">
+        <div class="flex flex-wrap items-center gap-3">
           <input type="text" id="movesSearchInput" placeholder="بحث بالصنف أو رقم المرجع..." class="p-2 border border-slate-300 rounded-xl text-xs w-64 focus:ring-2 focus:ring-blue-500 outline-none">
           <select id="moveTypeFilter" class="p-2 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none">
             <option value="">جميع الحركات</option>
-            <option value="IN">الوارد فقط (Inflow)</option>
-            <option value="OUT">المنصرف فقط (Outflow / Sales)</option>
+            <option value="sale">مبيعات (وارد للعميل)</option>
+            <option value="purchase">مشتريات (من المورد)</option>
+            <option value="transfer">تحويل مخزني داخلي</option>
+            <option value="scrap_out">هالك / تالف</option>
           </select>
         </div>
-        <div class="text-xs text-slate-500">
-          يعرض آخر الحركات المسجلة في النظام
+        <div class="flex items-center gap-2">
+          <button id="openUnmatchedProductsBtn" class="hidden bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold py-2 px-3 rounded-xl border border-amber-200 transition-all whitespace-nowrap">⚠️ <span id="unmatchedProductsBtnCount">0</span> صنف غير مطابق — راجعها</button>
+          <div id="movesCountLabel" class="text-xs text-slate-500"></div>
+          <button id="exportMovesBtn" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold py-2 px-3 rounded-xl border border-emerald-200 transition-all whitespace-nowrap">⬇️ تصدير Excel</button>
         </div>
       </div>
-
       <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div class="table-container overflow-x-auto max-h-[600px]">
           <table class="w-full text-right text-xs">
@@ -416,14 +345,12 @@
                 <th class="p-3">نوع الحركة</th>
               </tr>
             </thead>
-            <tbody id="movesTableBody" class="divide-y divide-slate-200">
-              <!-- Rendered via JS -->
-            </tbody>
+            <tbody id="movesTableBody" class="divide-y divide-slate-200"></tbody>
           </table>
+          <div id="movesLoadMoreRow"></div>
         </div>
       </div>
     </div>
-
   </main>
 
   <!-- MODAL 1: Password Verification Modal for Uploads -->
@@ -432,6 +359,7 @@
       <h3 class="text-base font-bold text-slate-900">تأكيد كلمة سر الرفع</h3>
       <p class="text-xs text-slate-500">يرجى إدخال كلمة السر الخاصة بالرفع والمشرفين للبدء بمعالجة الملفات.</p>
       <input type="password" id="modalPasswordInput" placeholder="أدخل كلمة السر..." class="w-full p-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none">
+      <p id="passwordModalError" class="hidden text-xs font-bold text-rose-600"></p>
       <div class="flex items-center justify-end gap-2 pt-2">
         <button onclick="closePasswordModal()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all">إلغاء</button>
         <button id="confirmPasswordBtn" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-all">تأكيد وتكملة</button>
@@ -447,58 +375,133 @@
         <button onclick="closeSettingsModal()" class="text-slate-400 hover:text-slate-600">✕</button>
       </div>
 
-      <!-- Password Setup Section -->
-      <div class="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
-        <h4 class="text-xs font-bold text-slate-700">كلمات سر الحماية</h4>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <!-- Business rules for classifying stock moves -- kept OUTSIDE the admin lock since
+           day-to-day staff need to tune it, but redesigned to be understandable without
+           any technical background: plain language + a live "جرّب بنفسك" tester. -->
+      <div class="space-y-3 border border-emerald-200 bg-emerald-50/50 p-4 rounded-xl">
+        <h4 class="text-xs font-bold text-emerald-900">قواعد تصنيف حركات المخزون (مبسّطة)</h4>
+        <p class="text-[12px] text-emerald-900 bg-white/70 border border-emerald-200 rounded-lg p-3 leading-relaxed">
+          <strong>الفكرة ببساطة:</strong> عندما ترفع ملف حركات، كل حركة لها "من موقع" و"إلى موقع". النظام يقرر نوعها بالنظر إلى كلمات مفتاحية في اسم الموقع:
+          <br>• لو "إلى موقع" فيها كلمة من قائمة <strong>"العملاء"</strong> → الحركة تُحسب <strong>بيع حقيقي</strong>.
+          <br>• لو "من موقع" فيها كلمة من قائمة <strong>"الموردين"</strong> → الحركة تُحسب <strong>شراء حقيقي</strong>.
+          <br>• أي حركة تانية (بين فروعك أو مخازنك أنت) → <strong>تحويل مخزني داخلي</strong>: تدخل في حساب الوارد/المنصرف الدفتري، لكن لا تُحسب ضمن المبيعات أو المشتريات الفعلية.
+        </p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
           <div>
-            <label class="text-[11px] text-slate-500 block mb-1">كلمة سر الموظفين (للرفع):</label>
-            <input type="password" id="uploadPasswordInput" value="123456" class="w-full p-2 border border-slate-300 rounded-lg text-xs outline-none">
+            <label class="block text-slate-600 mb-1">اسم مخزنك الرئيسي (الذي تجرده وتقارنه بالدفاتر):</label>
+            <input type="text" id="ruleMainWarehouseKw" class="w-full p-2 border border-slate-300 rounded-lg outline-none mono" placeholder="WH/Stock">
           </div>
           <div>
-            <label class="text-[11px] text-slate-500 block mb-1">كلمة سر المدير (للإعدادات والحدود):</label>
-            <input type="password" id="adminPasswordInput" value="admin123" class="w-full p-2 border border-slate-300 rounded-lg text-xs outline-none">
+            <label class="block text-slate-600 mb-1">كلمات تدل على "عميل حقيقي":</label>
+            <input type="text" id="ruleCustomerKw" class="w-full p-2 border border-slate-300 rounded-lg outline-none mono" placeholder="Customer, عملاء">
           </div>
+          <div>
+            <label class="block text-slate-600 mb-1">كلمات تدل على "مورّد حقيقي":</label>
+            <input type="text" id="ruleVendorKw" class="w-full p-2 border border-slate-300 rounded-lg outline-none mono" placeholder="Vendor, مورد">
+          </div>
+          <div>
+            <label class="block text-slate-600 mb-1">كلمات تدل على "هالك/تالف":</label>
+            <input type="text" id="ruleScrapKw" class="w-full p-2 border border-slate-300 rounded-lg outline-none mono" placeholder="Scrap, تالف, هالك">
+          </div>
+        </div>
+        <button id="saveMoveRulesBtn" class="px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-all">حفظ القواعد</button>
+
+        <div class="border-t border-emerald-200 pt-3 space-y-2">
+          <label class="text-xs font-bold text-emerald-900 block">🧪 جرّب بنفسك: اكتب اسم موقع من ملفك وشوف تصنيفه فوراً</label>
+          <input type="text" id="ruleTesterInput" placeholder="مثال: Virtual Locations/مخزن فرع طنطا سعيد" class="w-full p-2 border border-slate-300 rounded-lg text-xs outline-none mono">
+          <div id="ruleTesterResult" class="text-xs font-bold"></div>
         </div>
       </div>
 
-      <!-- Protected Price Rules Section -->
-      <div class="space-y-3 border border-purple-200 bg-purple-50/50 p-4 rounded-xl">
-        <div class="flex items-center justify-between">
-          <h4 class="text-xs font-bold text-purple-900">حدود الفئات السعرية (Price Classes)</h4>
-          <button id="unlockPriceLimitsBtn" class="text-xs font-bold text-purple-700 hover:underline">🔓 فك التأمين</button>
+      <!-- Category-path rule: ERP category exports are almost always a "/"-separated
+           hierarchy (e.g. Odoo's "All / Saleable / Shirts" or "T-Shirtk / Summer / T-Shirt
+           / Span / Basic"), and WHICH level of that path is "the real category" is a
+           business convention that differs per company/instance -- the software cannot
+           guess it with certainty, so it's a setting with a live preview, not a hidden
+           guess. Changing it and saving re-derives every already-uploaded item's category
+           immediately (from the raw path kept alongside it) -- no re-upload needed. -->
+      <div class="space-y-3 border border-indigo-200 bg-indigo-50/50 p-4 rounded-xl">
+        <h4 class="text-xs font-bold text-indigo-900">قاعدة تصنيف الفئات (من مسار الفئة في ملف التقييم)</h4>
+        <p class="text-[12px] text-indigo-900 bg-white/70 border border-indigo-200 rounded-lg p-3 leading-relaxed">
+          فئات ERP عادة تُصدَّر كمسار متدرج مفصول بـ "/" (مثال: <span class="mono">T-Shirtk / Summer / T-Shirt / Span / Basic</span>). أي مستوى في هذا المسار هو "الفئة الحقيقية" يختلف حسب طريقة تنظيمك لشجرة الفئات — اختر القاعدة المناسبة لك:
+        </p>
+        <select id="categoryLevelModeSelect" class="w-full p-2 border border-slate-300 rounded-lg text-xs outline-none">
+          <option value="second">المستوى الثاني في المسار (الافتراضي — مناسب لمعظم تصديرات Odoo)</option>
+          <option value="first">أول مستوى غير عام (يتخطى كلمات مثل All/الكل فقط)</option>
+          <option value="last">آخر مستوى (الأكثر تفصيلاً / الأدق تحديداً)</option>
+        </select>
+        <div class="border-t border-indigo-200 pt-3 space-y-2">
+          <label class="text-xs font-bold text-indigo-900 block">🧪 جرّب بنفسك: الصق مسار فئة من ملفك وشوف الناتج فوراً</label>
+          <input type="text" id="categoryTesterInput" value="T-Shirtk / Summer / T-Shirt / Span / Basic" class="w-full p-2 border border-slate-300 rounded-lg text-xs outline-none mono">
+          <div id="categoryTesterResult" class="text-xs font-bold text-indigo-700"></div>
         </div>
-        <div id="protectedPriceSection" class="hidden space-y-3 pt-2">
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-            <div>
-              <label class="block text-slate-600 mb-1">الحد الأقصى لفئة C- (اقتصادي):</label>
-              <input type="number" id="ruleCMinusMax" value="300" class="w-full p-2 border border-slate-300 rounded-lg outline-none">
-            </div>
-            <div>
-              <label class="block text-slate-600 mb-1">الحد الأقصى لفئة C (متوسط):</label>
-              <input type="number" id="ruleCMax" value="550" class="w-full p-2 border border-slate-300 rounded-lg outline-none">
-            </div>
-          </div>
-          <button id="savePriceLimitsBtn" class="px-4 py-2 bg-purple-600 text-white text-xs font-bold rounded-lg hover:bg-purple-700 transition-all">حفظ حدود الفئات السعرية</button>
-        </div>
+        <button id="saveCategoryRuleBtn" class="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition-all">حفظ وإعادة تصنيف كل الأصناف الآن</button>
       </div>
 
-      <!-- Protected Cloud Supabase Setup Section -->
-      <div class="space-y-3 border border-blue-200 bg-blue-50/50 p-4 rounded-xl">
+      <!-- Everything below requires the admin password to even VIEW, let alone edit --
+           previously the credentials box sat here wide open, which is exactly the
+           security hole reported: anyone could change the admin/upload password with
+           no check at all. -->
+      <div class="border border-slate-300 bg-slate-50 rounded-xl p-4">
         <div class="flex items-center justify-between">
-          <h4 class="text-xs font-bold text-blue-900">إعدادات الربط السحابي (Supabase Cloud API)</h4>
-          <button id="unlockCloudBtn" class="text-xs font-bold text-blue-700 hover:underline">🔓 فك التأمين</button>
+          <div>
+            <h4 class="text-xs font-bold text-slate-800">🔒 الإعدادات المحمية بكلمة سر المدير</h4>
+            <p class="text-[11px] text-slate-500 mt-0.5">كلمات السر، حدود الفئات السعرية، الربط السحابي، ومسح البيانات — كلها هنا، محمية بكلمة سر واحدة.</p>
+          </div>
+          <button id="unlockAllBtn" class="text-xs font-bold text-blue-700 hover:underline whitespace-nowrap">🔓 فتح الإعدادات المحمية</button>
         </div>
-        <div id="protectedCloudSection" class="hidden space-y-3 pt-2">
-          <div>
-            <label class="block text-slate-600 text-xs mb-1">Project URL:</label>
-            <input type="text" id="supabaseUrlInput" placeholder="https://xyz.supabase.co" class="w-full p-2 border border-slate-300 rounded-lg text-xs outline-none">
+
+        <div id="protectedSettingsGroup" class="hidden space-y-5 pt-4 mt-3 border-t border-slate-200">
+          <div class="space-y-3">
+            <h4 class="text-xs font-bold text-slate-700">كلمات السر</h4>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label class="text-[11px] text-slate-500 block mb-1">كلمة سر الموظفين (للرفع فقط):</label>
+                <input type="password" id="uploadPasswordInput" class="w-full p-2 border border-slate-300 rounded-lg text-xs outline-none">
+              </div>
+              <div>
+                <label class="text-[11px] text-slate-500 block mb-1">كلمة سر المدير (تفتح كل شيء):</label>
+                <input type="password" id="adminPasswordInput" class="w-full p-2 border border-slate-300 rounded-lg text-xs outline-none">
+              </div>
+            </div>
+            <button id="savePasswordsBtn" class="px-3 py-1.5 bg-slate-700 text-white text-xs font-bold rounded-lg hover:bg-slate-800">حفظ كلمات السر</button>
+            <p class="text-[11px] text-slate-500">⚠️ هذه حماية بسيطة على مستوى الواجهة فقط (client-side) وليست تشفيراً حقيقياً — أي شخص يفتح "أدوات المطور" في المتصفح يمكنه تجاوزها. لا تعتمد عليها لحماية بيانات حساسة فعلاً؛ استخدم صلاحيات Supabase الحقيقية لذلك.</p>
           </div>
-          <div>
-            <label class="block text-slate-600 text-xs mb-1">Anon / API Key:</label>
-            <input type="password" id="supabaseKeyInput" placeholder="eyJhbGciOi..." class="w-full p-2 border border-slate-300 rounded-lg text-xs outline-none">
+
+          <div class="space-y-3 border-t border-slate-200 pt-4">
+            <h4 class="text-xs font-bold text-purple-900">حدود الفئات السعرية (Price Classes)</h4>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div>
+                <label class="block text-slate-600 mb-1">الحد الأقصى لفئة C- (اقتصادي):</label>
+                <input type="number" id="ruleCMinusMax" value="300" class="w-full p-2 border border-slate-300 rounded-lg outline-none">
+              </div>
+              <div>
+                <label class="block text-slate-600 mb-1">الحد الأقصى لفئة C (متوسط):</label>
+                <input type="number" id="ruleCMax" value="550" class="w-full p-2 border border-slate-300 rounded-lg outline-none">
+              </div>
+            </div>
+            <button id="savePriceLimitsBtn" class="px-4 py-2 bg-purple-600 text-white text-xs font-bold rounded-lg hover:bg-purple-700 transition-all">حفظ حدود الفئات السعرية</button>
           </div>
-          <button id="connectBtn" class="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition-all">حفظ والاتصال بالسحابة</button>
+
+          <div class="space-y-3 border-t border-slate-200 pt-4">
+            <h4 class="text-xs font-bold text-blue-900">إعدادات الربط السحابي (Supabase Cloud API)</h4>
+            <div>
+              <label class="block text-slate-600 text-xs mb-1">Project URL:</label>
+              <input type="text" id="supabaseUrlInput" placeholder="https://xyz.supabase.co" class="w-full p-2 border border-slate-300 rounded-lg text-xs outline-none mono">
+            </div>
+            <div>
+              <label class="block text-slate-600 text-xs mb-1">Anon / API Key:</label>
+              <input type="password" id="supabaseKeyInput" placeholder="eyJhbGciOi..." class="w-full p-2 border border-slate-300 rounded-lg text-xs outline-none mono">
+            </div>
+            <button id="connectBtn" class="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition-all">حفظ والاتصال بالسحابة</button>
+            <p id="cloudStatusText" class="text-[11px] text-slate-500"></p>
+          </div>
+
+          <div class="space-y-2 border-t border-slate-200 pt-4">
+            <h4 class="text-xs font-bold text-rose-900">منطقة الخطر</h4>
+            <p class="text-[11px] text-rose-800">يحذف كل الأصناف وحركات المخزون المحمّلة في هذه الجلسة نهائياً (لا يؤثر على بيانات Supabase السحابية إن كانت محفوظة هناك مسبقاً).</p>
+            <button id="resetAllDataBtn" class="px-4 py-2 bg-rose-600 text-white text-xs font-bold rounded-lg hover:bg-rose-700 transition-all">🗑️ مسح جميع البيانات المحمّلة والبدء من جديد</button>
+          </div>
         </div>
       </div>
 
@@ -513,10 +516,62 @@
     <div class="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl border border-slate-200 space-y-4">
       <h3 class="text-sm font-bold text-slate-900">مطلوب كلمة سر المدير</h3>
       <input type="password" id="masterPasswordInput" placeholder="كلمة السر..." class="w-full p-2.5 border border-slate-300 rounded-xl text-xs outline-none">
+      <p id="masterLockError" class="hidden text-xs font-bold text-rose-600">كلمة السر غير صحيحة!</p>
       <div class="flex items-center justify-end gap-2">
         <button onclick="closeMasterLockModal()" class="px-3 py-1.5 bg-slate-100 text-slate-700 text-xs font-bold rounded-lg">إلغاء</button>
         <button id="confirmMasterPasswordBtn" class="px-3 py-1.5 bg-purple-600 text-white text-xs font-bold rounded-lg">فك القفل</button>
       </div>
+    </div>
+  </div>
+
+  <!-- MODAL 4: Column Mapping Review -- shown on EVERY upload, not just on failure, so
+       nothing is ever silently guessed. Shows what was auto-detected, lets the user
+       override any field, and live-previews the first 5 rows with the current mapping. -->
+  <div id="mappingReviewModal" class="modal">
+    <div class="bg-white rounded-2xl p-6 w-full max-w-3xl shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] overflow-y-auto">
+      <div>
+        <h3 class="text-base font-bold text-slate-900">راجع تعيين الأعمدة قبل الاستيراد</h3>
+        <p id="mappingReviewFileInfo" class="text-xs text-slate-500 mt-1"></p>
+      </div>
+      <div id="mappingReviewFieldsContainer" class="space-y-2"></div>
+      <p id="mappingReviewWarning" class="hidden text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3"></p>
+      <div>
+        <h4 class="text-xs font-bold text-slate-700 mb-2">معاينة حية لأول 5 صفوف بالتعيين الحالي:</h4>
+        <div class="table-container overflow-x-auto border border-slate-200 rounded-xl">
+          <table class="w-full text-right text-[11px]">
+            <thead id="mappingPreviewHead" class="bg-slate-100 text-slate-600 font-bold"></thead>
+            <tbody id="mappingPreviewBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
+        <button id="cancelMappingReviewBtn" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all">إلغاء الرفع</button>
+        <button id="confirmMappingReviewBtn" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-all">تأكيد واستيراد البيانات</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 5: Unmatched Products Reconciliation -- turns the "X% unmatched" data
+       quality warning into something actionable instead of a permanent red flag: each
+       moves-file product name that doesn't match any inventory item, ranked by total
+       quantity moved (highest-impact first), can be linked to a real item (type-to-
+       search) or confirmed as not-a-real-inventory-item (ignored). Both choices persist
+       so this work is never repeated on a re-upload of the same moves file. -->
+  <div id="unmatchedProductsModal" class="modal">
+    <div class="bg-white rounded-2xl p-6 w-full max-w-4xl shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] overflow-y-auto">
+      <div class="flex items-center justify-between border-b border-slate-200 pb-3">
+        <div>
+          <h3 class="text-base font-bold text-slate-900">أصناف غير مطابقة في ملف الحركات</h3>
+          <p class="text-xs text-slate-500 mt-1 max-w-2xl">أسماء ظهرت في ملف الحركات ولا تُطابق أي صنف في بيانات المخزون الحالية — مرتبة حسب أعلى كمية متحركة (الأكثر تأثيراً أولاً). لكل اسم: اربطه بصنف حقيقي موجود (لو نفس المنتج باسم مختلف)، أو تجاهله نهائياً (لو منتج/خامة داخلية مش من أصناف المخزون المُقيّمة أصلاً).</p>
+        </div>
+        <button onclick="closeUnmatchedProductsModal()" class="text-slate-400 hover:text-slate-600">✕</button>
+      </div>
+      <div class="flex items-center justify-between gap-2 flex-wrap">
+        <div id="unmatchedProductsCountLabel" class="text-xs text-slate-500 font-semibold"></div>
+        <button id="exportUnmatchedProductsBtn" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold py-1.5 px-3 rounded-lg border border-emerald-200 transition-all">⬇️ تصدير القائمة الكاملة Excel</button>
+      </div>
+      <div id="unmatchedProductsListContainer" class="space-y-2"></div>
+      <div id="unmatchedProductsLoadMoreRow"></div>
     </div>
   </div>
 
@@ -525,132 +580,699 @@
   (function() {
     "use strict";
 
-    // Application State Variables
-    const MASTER_PASSWORD = "admin123";
-    let pendingUploadType = null;
-    let activeUnlockTarget = null;
-    let supabaseClient = null;
+    /* ============================================================================
+       SECTION A — Smart Excel column mapping (normalization, synonyms, matching)
+       ============================================================================ */
+    function normalizeHeader(h) {
+      if (h === null || h === undefined) return "";
+      return String(h)
+        .trim()
+        .toLowerCase()
+        .replace(/[ً-ْ]/g, "")   // strip Arabic diacritics
+        .replace(/[إأآا]/g, "ا")
+        .replace(/ة/g, "ه")
+        .replace(/ى/g, "ي")
+        .replace(/[\s_\-\/.()\[\]#:،,]/g, "");
+    }
+    function normalizeText(s) { return String(s === null || s === undefined ? "" : s).trim(); }
 
-    let doughnutChartInstance = null;
-    let priceDoughnutChartInstance = null;
-    let barChartInstance = null;
-
-    let priceConfig = {
-      limitCMinus: Number(localStorage.getItem("limit_c_minus")) || 300,
-      limitCMid: Number(localStorage.getItem("limit_c_mid")) || 550
-    };
-
-    let state = {
-      targetMargin: 0.40,
-      search: '',
-      category: '',
-      movement: '',
-      priceClass: '',
-      sortKey: 'stockValue',
-      sortDir: -1,
-      movesSearch: '',
-      moveType: '',
-      items: [
-        { name: "شاشة سامسونج 65 بوصة 4K", cat: "إلكترونيات", cost: 1800, price: 2800, qtyInitial: 20, qtyFinal: 15, soldYr: 85, auditQty: 15, auditDate: "2026-08-20" },
-        { name: "ثلاجة إل جي 18 قدم نوفرست", cat: "أجهزة منزلية", cost: 2400, price: 3600, qtyInitial: 10, qtyFinal: 8, soldYr: 32, auditQty: 8, auditDate: "2026-08-20" },
-        { name: "غسالة توشيبا 7 كيلو أوتوماتيك", cat: "أجهزة منزلية", cost: 1100, price: 1650, qtyInitial: 15, qtyFinal: 12, soldYr: 45, auditQty: 11, auditDate: "2026-08-20" },
-        { name: "ماكينة قهوة ديلونجي ديديكا", cat: "أجهزة منزلية", cost: 450, price: 750, qtyInitial: 40, qtyFinal: 35, soldYr: 120, auditQty: 35, auditDate: "2026-08-20" },
-        { name: "سماعة أبل ايربودز برو 2", cat: "إلكترونيات", cost: 650, price: 950, qtyInitial: 50, qtyFinal: 42, soldYr: 210, auditQty: 42, auditDate: "2026-08-20" },
-        { name: "خلاط مولينكس 500 واط مع ملحقات", cat: "أدوات مطبخ", cost: 120, price: 220, qtyInitial: 80, qtyFinal: 75, soldYr: 180, auditQty: 75, auditDate: "2026-08-20" },
-        { name: "قلاية هوائية فيليبس XL", cat: "أدوات مطبخ", cost: 380, price: 620, qtyInitial: 30, qtyFinal: 22, soldYr: 140, auditQty: 22, auditDate: "2026-08-20" },
-        { name: "مكواة بخار تيفال 2000 واط", cat: "أجهزة منزلية", cost: 95, price: 160, qtyInitial: 60, qtyFinal: 58, soldYr: 25, auditQty: 58, auditDate: "2026-08-20" },
-        { name: "مروحة سقف توشيبا 56 بوصة", cat: "أجهزة منزلية", cost: 180, price: 290, qtyInitial: 25, qtyFinal: 24, soldYr: 8, auditQty: 24, auditDate: "2026-08-20" },
-        { name: "تلفزيون سوني 55 بوصة OLED", cat: "إلكترونيات", cost: 3200, price: 4800, qtyInitial: 5, qtyFinal: 4, soldYr: 18, auditQty: 4, auditDate: "2026-08-20" }
-      ],
-      moves: [
-        { date: "2026-08-01", reference: "WH/IN/00101", product: "شاشة سامسونج 65 بوصة 4K", from_loc: "Vendors/موردين", to_loc: "WH/Stock/المخزن", qty: 20, uom: "قطعة" },
-        { date: "2026-08-05", reference: "WH/OUT/00342", product: "شاشة سامسونج 65 بوصة 4K", from_loc: "WH/Stock/المخزن", to_loc: "Customers/عملاء", qty: 5, uom: "قطعة" },
-        { date: "2026-08-10", reference: "WH/OUT/00389", product: "غسالة توشيبا 7 كيلو أوتوماتيك", from_loc: "WH/Stock/المخزن", to_loc: "Customers/عملاء", qty: 4, uom: "قطعة" },
-        { date: "2026-08-12", reference: "WH/IN/00115", product: "سماعة أبل ايربودز برو 2", from_loc: "Vendors/موردين", to_loc: "WH/Stock/المخزن", qty: 30, uom: "قطعة" },
-        { date: "2026-08-15", reference: "WH/OUT/00412", product: "سماعة أبل ايربودز برو 2", from_loc: "WH/Stock/المخزن", to_loc: "Customers/عملاء", qty: 38, uom: "قطعة" }
-      ]
-    };
-
-    // Helper Utility Functions
-    function cleanText(str) {
-      if (!str) return "";
-      return String(str).trim();
+    function buildHeaderIndex(rows) {
+      const rawHeaders = new Set();
+      const sampleSize = Math.min(rows.length, 25);
+      for (let i = 0; i < sampleSize; i++) Object.keys(rows[i] || {}).forEach(k => rawHeaders.add(k));
+      const headerList = Array.from(rawHeaders);
+      const map = {};
+      headerList.forEach(h => { const n = normalizeHeader(h); if (n && !(n in map)) map[n] = h; });
+      return { map, headerList };
     }
 
-    function getVal(row, keys) {
-      for (let k of keys) {
-        if (row[k] !== undefined && row[k] !== null && row[k] !== "") return row[k];
+    function findColumn(headerIndex, candidates, exclude) {
+      const normCandidates = candidates.map(normalizeHeader);
+      const normExclude = (exclude || []).map(normalizeHeader);
+      for (const cand of normCandidates) { if (headerIndex.map[cand] !== undefined) return headerIndex.map[cand]; }
+      const headerEntries = Object.entries(headerIndex.map);
+      for (const cand of normCandidates) {
+        for (const [normHeader, original] of headerEntries) {
+          if (normExclude.some(x => normHeader.includes(x))) continue;
+          if (normHeader.includes(cand)) return original;
+        }
       }
       return null;
     }
 
-    function syncPriceRuleInputs() {
-      document.getElementById("ruleCMinusMax").value = priceConfig.limitCMinus;
-      document.getElementById("ruleCMax").value = priceConfig.limitCMid;
+    function getBy(row, headerKey) {
+      if (!headerKey) return null;
+      const v = row[headerKey];
+      if (v === undefined || v === null || v === "") return null;
+      return v;
+    }
+    function numOrNull(row, headerKey) {
+      const v = getBy(row, headerKey);
+      if (v === null) return null;
+      const n = Number(v);
+      return isNaN(n) ? null : n;
     }
 
-    function setUploadLoading(isLoading, text = "") {
+    // Excel stores dates as a serial day-count from 1899-12-30. When a source file's
+    // date column is read without XLSX's cellDates option (or the column is styled as
+    // a plain "General" number rather than an explicit Excel date type, which is common
+    // in real-world ERP exports), the raw value that reaches us is a number like
+    // 46233.82533564815 -- exactly the broken-looking figure reported in the moves
+    // table. This converts that serial back into a real, readable date/time instead of
+    // ever displaying the raw float.
+    function excelSerialToJSDate(serial) {
+      const utcDays = Math.floor(serial - 25569);
+      const utcValue = utcDays * 86400;
+      const dateInfo = new Date(utcValue * 1000);
+      const fractionalDay = serial - Math.floor(serial) + 0.0000001;
+      let totalSeconds = Math.floor(86400 * fractionalDay);
+      const seconds = totalSeconds % 60; totalSeconds -= seconds;
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor(totalSeconds / 60) % 60;
+      return new Date(dateInfo.getFullYear(), dateInfo.getMonth(), dateInfo.getDate(), hours, minutes, seconds);
+    }
+    function pad2(n) { return String(n).padStart(2, "0"); }
+    function formatJSDateForDisplay(d) {
+      const y = d.getFullYear(), mo = pad2(d.getMonth() + 1), da = pad2(d.getDate());
+      if (d.getHours() === 0 && d.getMinutes() === 0 && d.getSeconds() === 0) return `${y}-${mo}-${da}`;
+      return `${y}-${mo}-${da} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+    }
+    function formatDateValue(v) {
+      if (v === null || v === undefined || v === "") return "";
+      if (v instanceof Date) return formatJSDateForDisplay(v);
+      if (typeof v === "number" && isFinite(v) && v > 20000 && v < 80000) {
+        return formatJSDateForDisplay(excelSerialToJSDate(v));
+      }
+      return normalizeText(v);
+    }
+
+    // Shared identity-matching key for tying a moves-file "Product" text to an item's
+    // name -- used on BOTH sides (aggregateMovesByProduct and processInventoryData) so
+    // they can never silently drift out of sync with each other. Collapses repeated
+    // whitespace and case so trivial export formatting differences ("  " vs " ") don't
+    // cause a real match to be missed and silently reported as zero movement.
+    function normalizeMatchKey(s) {
+      return normalizeText(s).toLowerCase().replace(/\s+/g, " ").trim();
+    }
+
+    // ERP category exports are usually a "/"-separated path (e.g. Odoo's
+    // "All / Saleable / T-Shirts"). The root segment is almost always a generic
+    // label ("All", "الكل", "Root") that is useless as a grouping bucket on its
+    // own -- taking it blindly produces one giant "All" category holding every
+    // single product. Skip generic root labels and use the first meaningful
+    // segment instead; fall back to the leaf segment if every segment is generic.
+    const GENERIC_CATEGORY_ROOTS = ["all", "الكل", "root", "default", "general", "عام"];
+    // Which level of a "/"-separated category path counts as "the" category is a
+    // business convention that varies per ERP instance -- not something the software
+    // can guess correctly for everyone (e.g. "T-Shirtk / Summer / T-Shirt / Span / Basic"
+    // wants "Summer", the 2nd segment, while "All / Saleable / Shirts" also wants its
+    // 2nd segment "Saleable" -- but a THIRD company might genuinely want the leaf, or
+    // the first non-generic label). So this is a configurable, user-confirmed setting
+    // (see settings.categoryLevelMode) with a live tester, not a hardcoded heuristic.
+    function deriveCategoryLabel(rawPath, mode) {
+      const parts = String(rawPath).split("/").map(s => s.trim()).filter(Boolean);
+      if (!parts.length) return rawPath;
+      const m = mode || "second";
+      if (m === "last") return parts[parts.length - 1];
+      if (m === "first") {
+        for (const p of parts) { if (!GENERIC_CATEGORY_ROOTS.includes(normalizeHeader(p))) return p; }
+        return parts[parts.length - 1];
+      }
+      // "second" (default): the level right under the root -- this is the level Odoo's
+      // own UI treats as the top of a company's OWN category tree, regardless of what
+      // the auto-generated root segment happens to be called.
+      return parts.length >= 2 ? parts[1] : parts[0];
+    }
+
+    const SYN = {
+      code: ["Products/ID", "Item Code", "Product Code", "SKU", "Code", "ID", "الرقم", "كود الصنف", "كود المنتج", "رقم الصنف"],
+      barcode: ["Products/Barcode", "Barcode", "باركود", "الباركود"],
+      name: ["Display Name", "Item Name", "Product Name", "اسم الصنف", "اسم المنتج", "الصنف", "المنتج", "Name", "Item", "Product"],
+      category: ["Product Category", "Internal Category", "Category", "الفئة", "التصنيف", "فئة المنتج"],
+      unitCost: ["Unit Cost", "Average Cost", "Avg Cost", "Avg. Purchase Unit Price", "Purchase Unit Price", "تكلفة الوحدة", "التكلفة", "تكلفة"],
+      salesPrice: ["Sales Price", "سعر البيع", "السعر", "Price"],
+      stockValue: ["Total Value", "القيمة الإجمالية", "القيمة", "Value"],
+      qtyInitial: ["رصيد أول المدة", "رصيد أول", "Opening Balance", "Initial Qty", "Beginning Qty", "Initial"],
+      qtyFinal: ["رصيد آخر المدة", "رصيد آخر", "On Hand", "Final Qty", "Closing Balance", "Final", "Qty On Hand", "Quantity", "Qty", "الكمية"],
+      auditQty: ["الجرد الفعلي", "الكمية الفعلية", "Counted Qty", "Audit Qty", "Counted", "Physical Count"],
+      auditDate: ["تاريخ الجرد", "Audit Date", "Count Date"],
+      date: ["Date", "التاريخ", "تاريخ الحركة"],
+      reference: ["Reference", "المرجع", "رقم المستند", "Source Document", "Sequence"],
+      moveProduct: ["Product", "المنتج", "الصنف", "Item", "Display Name"],
+      fromLoc: ["From", "From Location", "Source Location", "من موقع", "من"],
+      toLoc: ["To", "To Location", "Destination Location", "إلى موقع", "إلى", "الى"],
+      moveQty: ["Quantity", "Qty", "الكمية", "Demand", "Done"],
+      uom: ["Unit of Measure", "UoM", "وحدة القياس", "الوحدة"]
+    };
+    const EXCLUDE = { unitCost: ["Total"] };
+
+    // ---- Detection (pure: header names -> best-guess column) ----
+    function autoDetectValuationCols(headerIndex) {
+      return {
+        nameCol: findColumn(headerIndex, SYN.name),
+        codeCol: findColumn(headerIndex, SYN.code),
+        barcodeCol: findColumn(headerIndex, SYN.barcode),
+        categoryCol: findColumn(headerIndex, SYN.category),
+        unitCostCol: findColumn(headerIndex, SYN.unitCost, EXCLUDE.unitCost),
+        salesPriceCol: findColumn(headerIndex, SYN.salesPrice),
+        stockValueCol: findColumn(headerIndex, SYN.stockValue),
+        qtyInitialCol: findColumn(headerIndex, SYN.qtyInitial),
+        qtyFinalCol: findColumn(headerIndex, SYN.qtyFinal),
+        auditQtyCol: findColumn(headerIndex, SYN.auditQty),
+        auditDateCol: findColumn(headerIndex, SYN.auditDate)
+      };
+    }
+    function autoDetectMovesCols(headerIndex) {
+      return {
+        dateCol: findColumn(headerIndex, SYN.date),
+        referenceCol: findColumn(headerIndex, SYN.reference),
+        productCol: findColumn(headerIndex, SYN.moveProduct),
+        fromCol: findColumn(headerIndex, SYN.fromLoc),
+        toCol: findColumn(headerIndex, SYN.toLoc),
+        qtyCol: findColumn(headerIndex, SYN.moveQty),
+        uomCol: findColumn(headerIndex, SYN.uom)
+      };
+    }
+
+    function resolveRowIdentity(row, cols, carry) {
+      const rawName = normalizeText(getBy(row, cols.nameCol));
+      const rawCode = getBy(row, cols.codeCol);
+      const rawBarcode = getBy(row, cols.barcodeCol);
+      const code = rawCode !== null ? normalizeText(rawCode) : (rawBarcode !== null ? normalizeText(rawBarcode) : null);
+      if (!rawName && !code) return { key: null, displayName: null, usedFallback: false, empty: true };
+      if (rawName) {
+        carry.lastName = rawName;
+        const key = code ? `code:${code}` : `name:${rawName.toLowerCase()}`;
+        return { key, displayName: rawName, usedFallback: false, empty: false };
+      }
+      const label = carry.lastName ? `${carry.lastName} (#${code})` : `صنف بدون اسم (#${code})`;
+      return { key: `code:${code}`, displayName: label, usedFallback: true, empty: false };
+    }
+
+    // ---- Extraction (pure: rows + a FINAL, user-confirmed cols mapping -> data). No
+    // detection happens here anymore -- cols must already be resolved (auto or manual). ----
+    function extractValuationRows(rows, cols) {
+      const identityFound = !!(cols.nameCol || cols.codeCol || cols.barcodeCol);
+      const result = { rowsOut: [], stats: { total: rows.length, mapped: 0, skippedEmpty: 0, usedFallbackLabel: 0 }, cols, identityFound };
+      if (!identityFound) return result;
+      const carry = { lastName: null, lastCategoryRaw: null };
+      rows.forEach(row => {
+        const idn = resolveRowIdentity(row, cols, carry);
+        if (idn.empty) { result.stats.skippedEmpty++; return; }
+        if (idn.usedFallback) result.stats.usedFallbackLabel++;
+        let categoryRaw = normalizeText(getBy(row, cols.categoryCol));
+        if (categoryRaw) { carry.lastCategoryRaw = categoryRaw; }
+        else if (idn.usedFallback && carry.lastCategoryRaw) categoryRaw = carry.lastCategoryRaw;
+        result.stats.mapped++;
+        result.rowsOut.push({
+          key: idn.key, displayName: idn.displayName,
+          categoryRaw: categoryRaw || null,
+          category: categoryRaw ? deriveCategoryLabel(categoryRaw, settings.categoryLevelMode) : null,
+          unitCost: numOrNull(row, cols.unitCostCol), salesPrice: numOrNull(row, cols.salesPriceCol),
+          stockValue: numOrNull(row, cols.stockValueCol), qtyInitial: numOrNull(row, cols.qtyInitialCol),
+          qtyFinal: numOrNull(row, cols.qtyFinalCol), auditQty: numOrNull(row, cols.auditQtyCol),
+          auditDate: cols.auditDateCol ? formatDateValue(getBy(row, cols.auditDateCol)) || null : null
+        });
+      });
+      return result;
+    }
+
+    const DEFAULT_MOVE_KEYWORDS = {
+      customer: ["Customer", "عملاء", "العملاء", "Client"],
+      vendor: ["Vendor", "Supplier", "مورد", "الموردين", "الموردون"],
+      scrap: ["Scrap", "تالف", "هالك", "Inventory Loss"]
+    };
+    function classifyLocationRole(locText, keywords) {
+      const t = normalizeHeader(locText);
+      if (!t) return "other";
+      if (keywords.customer.some(k => t.includes(normalizeHeader(k)))) return "customer";
+      if (keywords.vendor.some(k => t.includes(normalizeHeader(k)))) return "vendor";
+      if (keywords.scrap.some(k => t.includes(normalizeHeader(k)))) return "scrap";
+      return "other";
+    }
+    function classifyMove(m, keywords) {
+      const fromRole = classifyLocationRole(m.from_loc, keywords);
+      const toRole = classifyLocationRole(m.to_loc, keywords);
+      if (toRole === "customer") return "sale";
+      if (fromRole === "vendor") return "purchase";
+      if (toRole === "scrap") return "scrap_out";
+      if (fromRole === "scrap") return "scrap_in";
+      return "transfer";
+    }
+    function extractMovesRows(rows, cols, keywords) {
+      const identityFound = !!cols.productCol;
+      const result = { moves: [], stats: { total: rows.length, mapped: 0, skippedEmpty: 0 }, cols, identityFound };
+      if (!identityFound) return result;
+      rows.forEach(row => {
+        const product = normalizeText(getBy(row, cols.productCol));
+        if (!product) { result.stats.skippedEmpty++; return; }
+        // NOTE: uom/qty are never given a fabricated-looking default (e.g. a fake
+        // "unit" placeholder or a silent 0) here -- what wasn't found stays null/0
+        // and is flagged to the user in the mapping-review step BEFORE import, not
+        // hidden behind a plausible-looking value after the fact.
+        const m = {
+          date: formatDateValue(getBy(row, cols.dateCol)),
+          reference: normalizeText(getBy(row, cols.referenceCol)),
+          product,
+          from_loc: normalizeText(getBy(row, cols.fromCol)),
+          to_loc: normalizeText(getBy(row, cols.toCol)),
+          qty: Math.abs(Number(getBy(row, cols.qtyCol)) || 0),
+          uom: normalizeText(getBy(row, cols.uomCol)) || null
+        };
+        m.moveType = classifyMove(m, keywords);
+        result.stats.mapped++;
+        result.moves.push(m);
+      });
+      return result;
+    }
+
+    function classifyDirection(m, mainWarehouseKeywords) {
+      const kws = (mainWarehouseKeywords && mainWarehouseKeywords.length ? mainWarehouseKeywords : ["WH/Stock"]).map(normalizeHeader);
+      const fromN = normalizeHeader(m.from_loc);
+      const toN = normalizeHeader(m.to_loc);
+      const fromIsMain = kws.some(k => k && fromN.includes(k));
+      const toIsMain = kws.some(k => k && toN.includes(k));
+      if (fromIsMain && !toIsMain) return "out";
+      if (toIsMain && !fromIsMain) return "in";
+      return "unknown";
+    }
+    function aggregateMovesByProduct(moves, mainWarehouseKeywords) {
+      const byProduct = {};
+      let matchedAny = false;
+      const withDirection = moves.map(m => { const dir = classifyDirection(m, mainWarehouseKeywords); if (dir !== "unknown") matchedAny = true; return { m, dir }; });
+      const finalize = (moveType) => {
+        if (moveType === "purchase" || moveType === "scrap_in") return "in";
+        if (moveType === "sale" || moveType === "scrap_out" || moveType === "transfer") return "out";
+        return "unknown";
+      };
+      const usedFallback = !matchedAny && moves.length > 0;
+      withDirection.forEach(({ m, dir }) => {
+        const key = resolveAliasedProductKey(m.product);
+        if (!key) return; // null = confirmed-ignored alias, or genuinely blank product text
+        if (!byProduct[key]) byProduct[key] = { totalIn: 0, totalOut: 0, totalSold: 0, totalPurchased: 0, unknownQty: 0 };
+        const bucket = byProduct[key];
+        const effectiveDir = usedFallback ? finalize(m.moveType) : dir;
+        if (effectiveDir === "in") bucket.totalIn += m.qty;
+        else if (effectiveDir === "out") bucket.totalOut += m.qty;
+        else bucket.unknownQty += m.qty;
+        if (m.moveType === "sale") bucket.totalSold += m.qty;
+        if (m.moveType === "purchase") bucket.totalPurchased += m.qty;
+      });
+      return { byProduct, usedFallback };
+    }
+
+    function splitKeywords(str) {
+      return String(str || "").split(",").map(s => s.trim()).filter(Boolean);
+    }
+
+    // A stock-moves upload is a LEDGER, not a snapshot: uploading "August moves" must
+    // append to whatever move history is already loaded, never silently erase it.
+    // A stable signature-based id lets us (a) de-duplicate if the same file/rows are
+    // re-uploaded, and (b) give Supabase a real conflict target for upsert.
+    function moveSignature(m) {
+      return [m.date, m.reference, m.product, m.qty, m.from_loc, m.to_loc].join("|");
+    }
+    function moveId(m) {
+      const s = moveSignature(m);
+      let h = 0;
+      for (let i = 0; i < s.length; i++) { h = ((h << 5) - h + s.charCodeAt(i)) | 0; }
+      return "mv_" + (h >>> 0).toString(36);
+    }
+    function mergeMovesIntoState(newMoves) {
+      const existingSignatures = new Set(state.moves.map(moveSignature));
+      let addedCount = 0, duplicateCount = 0;
+      newMoves.forEach(m => {
+        const sig = moveSignature(m);
+        if (existingSignatures.has(sig)) { duplicateCount++; return; }
+        existingSignatures.add(sig);
+        m.id = moveId(m);
+        state.moves.push(m);
+        addedCount++;
+      });
+      return { addedCount, duplicateCount };
+    }
+
+    /* ============================================================================
+       SECTION A2 — Column Mapping Review modal (shown for EVERY upload)
+       ============================================================================ */
+    const UPLOAD_FIELD_SPECS = {
+      invInitial: [
+        { key: 'nameCol', label: 'اسم / كود الصنف', required: true },
+        { key: 'codeCol', label: 'كود الصنف (إن وجد، اختياري)' },
+        { key: 'qtyInitialCol', label: 'رصيد أول المدة (الكمية)', critical: true }
+      ],
+      invFinal: [
+        { key: 'nameCol', label: 'اسم / كود الصنف', required: true },
+        { key: 'codeCol', label: 'كود الصنف (إن وجد، اختياري)' },
+        { key: 'qtyFinalCol', label: 'رصيد آخر المدة (الكمية الحالية)', critical: true }
+      ],
+      audit: [
+        { key: 'nameCol', label: 'اسم / كود الصنف', required: true },
+        { key: 'codeCol', label: 'كود الصنف (إن وجد، اختياري)' },
+        { key: 'auditQtyCol', label: 'الكمية الفعلية بالجرد', critical: true },
+        { key: 'auditDateCol', label: 'تاريخ الجرد' }
+      ],
+      valuation: [
+        { key: 'nameCol', label: 'اسم / كود الصنف', required: true },
+        { key: 'codeCol', label: 'كود الصنف (إن وجد، اختياري)' },
+        { key: 'categoryCol', label: 'التصنيف / الفئة' },
+        { key: 'unitCostCol', label: 'تكلفة الوحدة', critical: true },
+        { key: 'salesPriceCol', label: 'سعر البيع', critical: true },
+        { key: 'stockValueCol', label: 'إجمالي قيمة المخزون (اختياري)' }
+      ],
+      moves: [
+        { key: 'dateCol', label: 'التاريخ' },
+        { key: 'referenceCol', label: 'المرجع / المستند' },
+        { key: 'productCol', label: 'اسم الصنف', required: true },
+        { key: 'fromCol', label: 'من موقع', critical: true },
+        { key: 'toCol', label: 'إلى موقع', critical: true },
+        { key: 'qtyCol', label: 'الكمية', critical: true },
+        { key: 'uomCol', label: 'وحدة القياس' }
+      ]
+    };
+    const UPLOAD_TYPE_TITLES = {
+      invInitial: 'رصيد أول المدة', invFinal: 'رصيد آخر المدة', audit: 'جرد فعلي',
+      valuation: 'تكاليف وأسعار', moves: 'حركات المخزون'
+    };
+
+    let mappingReviewState = null; // { uploadType, rows, headerList, cols, resolve }
+
+    function buildColSelectOptions(headerList, currentValue) {
+      let html = `<option value="">-- لا يوجد / تجاهل --</option>`;
+      headerList.forEach(h => {
+        const esc = String(h).replace(/"/g, '&quot;');
+        html += `<option value="${esc}" ${h === currentValue ? 'selected' : ''}>${esc}</option>`;
+      });
+      return html;
+    }
+
+    function showMappingReviewModal(uploadType, headerList, autoCols, rows) {
+      return new Promise(resolve => {
+        mappingReviewState = { uploadType, rows, headerList, cols: { ...autoCols }, resolve };
+        document.getElementById("mappingReviewFileInfo").innerText =
+          `نوع الرفع: ${UPLOAD_TYPE_TITLES[uploadType] || uploadType} — عدد الصفوف: ${rows.length} — عدد الأعمدة المكتشفة: ${headerList.length}`;
+        renderMappingFields();
+        renderMappingPreview();
+        document.getElementById("mappingReviewModal").classList.add("active");
+      });
+    }
+    function renderMappingFields() {
+      const spec = UPLOAD_FIELD_SPECS[mappingReviewState.uploadType];
+      const container = document.getElementById("mappingReviewFieldsContainer");
+      container.innerHTML = spec.map(f => {
+        const val = mappingReviewState.cols[f.key];
+        const found = !!val;
+        const statusHtml = found
+          ? `<span class="badge match">✓ ${val}</span>`
+          : (f.required ? `<span class="badge diff">✗ غير موجود (إلزامي)</span>`
+            : (f.critical ? `<span class="badge warn">⚠ غير موجود</span>` : `<span class="badge pending">غير مستخدم</span>`));
+        return `<div class="flex items-center gap-3 flex-wrap border-b border-slate-100 pb-2">
+          <div class="w-52 text-xs font-bold text-slate-700">${f.label}${f.required ? ' *' : ''}</div>
+          <select data-field="${f.key}" class="mapping-select flex-1 min-w-[180px] p-1.5 border border-slate-300 rounded-lg text-xs outline-none mono">${buildColSelectOptions(mappingReviewState.headerList, val)}</select>
+          <div class="w-44 text-left">${statusHtml}</div>
+        </div>`;
+      }).join('');
+      container.querySelectorAll(".mapping-select").forEach(sel => {
+        sel.addEventListener("change", () => {
+          mappingReviewState.cols[sel.dataset.field] = sel.value || null;
+          renderMappingFields();
+          renderMappingPreview();
+        });
+      });
+    }
+    function renderMappingPreview() {
+      const { uploadType, rows, cols } = mappingReviewState;
+      const sampleRows = rows.slice(0, 5);
+      const head = document.getElementById("mappingPreviewHead");
+      const body = document.getElementById("mappingPreviewBody");
+      if (uploadType === 'moves') {
+        const extracted = extractMovesRows(sampleRows, cols, getMoveKeywords()).moves;
+        head.innerHTML = `<tr><th class="p-2">التاريخ</th><th class="p-2">المرجع</th><th class="p-2">الصنف</th><th class="p-2">من</th><th class="p-2">إلى</th><th class="p-2">الكمية</th><th class="p-2">الوحدة</th><th class="p-2">التصنيف الناتج</th></tr>`;
+        body.innerHTML = extracted.map(m => `<tr>
+            <td class="p-2">${m.date || '-'}</td><td class="p-2">${m.reference || '-'}</td>
+            <td class="p-2">${m.product || '-'}</td><td class="p-2">${m.from_loc || '-'}</td>
+            <td class="p-2">${m.to_loc || '-'}</td><td class="p-2 num">${m.qty}</td>
+            <td class="p-2">${m.uom || '-'}</td><td class="p-2">${(MOVE_TYPE_LABELS[m.moveType] || {}).text || m.moveType}</td>
+          </tr>`).join('') || `<tr><td colspan="8" class="p-3 text-center text-slate-400">لا يمكن استخراج أي صف بالتعيين الحالي — تأكد من اختيار عمود "اسم الصنف"</td></tr>`;
+      } else {
+        const extracted = extractValuationRows(sampleRows, cols).rowsOut;
+        head.innerHTML = `<tr><th class="p-2">الصنف</th><th class="p-2">الفئة</th><th class="p-2">التكلفة</th><th class="p-2">السعر</th><th class="p-2">القيمة</th><th class="p-2">رصيد أول</th><th class="p-2">رصيد آخر</th><th class="p-2">جرد فعلي</th></tr>`;
+        body.innerHTML = extracted.map(r => `<tr>
+            <td class="p-2">${r.displayName || '-'}</td><td class="p-2">${r.category || '-'}</td>
+            <td class="p-2 num">${r.unitCost ?? '-'}</td><td class="p-2 num">${r.salesPrice ?? '-'}</td>
+            <td class="p-2 num">${r.stockValue ?? '-'}</td><td class="p-2 num">${r.qtyInitial ?? '-'}</td>
+            <td class="p-2 num">${r.qtyFinal ?? '-'}</td><td class="p-2 num">${r.auditQty ?? '-'}</td>
+          </tr>`).join('') || `<tr><td colspan="8" class="p-3 text-center text-slate-400">لا يمكن استخراج أي صف بالتعيين الحالي — تأكد من اختيار عمود "اسم/كود الصنف"</td></tr>`;
+      }
+      const spec = UPLOAD_FIELD_SPECS[uploadType];
+      const missingCritical = spec.filter(f => f.critical && !mappingReviewState.cols[f.key]);
+      const warnEl = document.getElementById("mappingReviewWarning");
+      if (missingCritical.length) {
+        warnEl.innerText = `⚠️ لم يتم تحديد عمود لـ: ${missingCritical.map(f => f.label).join('، ')}. سيتم الاستيراد بدون هذه القيم (فارغة/صفر حقيقي) — لن يتم اختراع أرقام بدلاً منها. راجع القائمة أعلاه واختر العمود الصحيح إن كان موجوداً في ملفك.`;
+        warnEl.classList.remove("hidden");
+      } else { warnEl.classList.add("hidden"); warnEl.innerText = ""; }
+    }
+    document.getElementById("cancelMappingReviewBtn").addEventListener("click", () => {
+      document.getElementById("mappingReviewModal").classList.remove("active");
+      const r = mappingReviewState; mappingReviewState = null;
+      if (r) r.resolve(null);
+    });
+    document.getElementById("confirmMappingReviewBtn").addEventListener("click", () => {
+      const r = mappingReviewState;
+      if (!r) return;
+      const spec = UPLOAD_FIELD_SPECS[r.uploadType];
+      const missingRequired = spec.filter(f => f.required && !r.cols[f.key]);
+      if (missingRequired.length) { alert("يجب تحديد عمود لـ: " + missingRequired.map(f => f.label).join('، ') + " قبل المتابعة."); return; }
+      document.getElementById("mappingReviewModal").classList.remove("active");
+      mappingReviewState = null;
+      r.resolve(r.cols);
+    });
+
+    /* ============================================================================
+       SECTION B — Application state, settings persistence, seed data
+       ============================================================================ */
+    const DEFAULTS = {
+      uploadPassword: "123456",
+      adminPassword: "22181",
+      limitCMinus: 300,
+      limitCMid: 550,
+      mainWarehouseKw: "WH/Stock",
+      customerKw: "Customer, عملاء",
+      vendorKw: "Vendor, مورد",
+      scrapKw: "Scrap, تالف, هالك",
+      categoryLevelMode: "second"
+    };
+    function loadSetting(key, fallback) {
+      const v = localStorage.getItem(key);
+      return (v === null || v === undefined || v === "") ? fallback : v;
+    }
+    let settings = {
+      uploadPassword: loadSetting("upload_password", DEFAULTS.uploadPassword),
+      adminPassword: loadSetting("admin_password", DEFAULTS.adminPassword),
+      limitCMinus: Number(loadSetting("limit_c_minus", DEFAULTS.limitCMinus)),
+      limitCMid: Number(loadSetting("limit_c_mid", DEFAULTS.limitCMid)),
+      mainWarehouseKw: loadSetting("rule_main_wh", DEFAULTS.mainWarehouseKw),
+      customerKw: loadSetting("rule_customer_kw", DEFAULTS.customerKw),
+      vendorKw: loadSetting("rule_vendor_kw", DEFAULTS.vendorKw),
+      scrapKw: loadSetting("rule_scrap_kw", DEFAULTS.scrapKw),
+      categoryLevelMode: loadSetting("category_level_mode", DEFAULTS.categoryLevelMode)
+    };
+
+    let pendingUploadType = null;
+    let supabaseClient = null;
+    let doughnutChartInstance = null, priceDoughnutChartInstance = null, barChartInstance = null;
+    let lastDataQualityNotes = [];
+
+    // Performance: the full financial recompute (aggregateMovesByProduct + per-item
+    // math over every SKU) only needs to re-run when the underlying DATA changes
+    // (an upload, a settings save, a target-margin edit, a reset) -- not on every
+    // keystroke in a search box. cachedProcessed holds the last full recompute;
+    // filter/sort/search interactions re-render FROM this cache instead of redoing it.
+    let cachedProcessed = [];
+    let lastUnmatchedStats = [];
+    let inventoryRenderLimit = 300;
+    let movesRenderLimit = 300;
+
+    function debounce(fn, wait) {
+      let t = null;
+      return function(...args) { clearTimeout(t); t = setTimeout(() => fn.apply(this, args), wait); };
+    }
+    // O(n) top-N by a numeric key -- avoids sorting a whole (possibly tens-of-thousands-
+    // row) array just to read off a handful of the largest values.
+    function getTopN(arr, n, valueFn) {
+      const top = [];
+      for (const item of arr) {
+        const v = valueFn(item);
+        if (top.length < n) {
+          top.push(item); top.sort((a, b) => valueFn(b) - valueFn(a));
+        } else if (v > valueFn(top[top.length - 1])) {
+          top[top.length - 1] = item; top.sort((a, b) => valueFn(b) - valueFn(a));
+        }
+      }
+      return top;
+    }
+
+    let state = {
+      targetMargin: 0.40,
+      search: '', category: '', movement: '', priceClass: '',
+      sortKey: 'stockValue', sortDir: -1,
+      movesSearch: '', moveType: '',
+      // The seed rows below are DEMO data only, shown so the dashboard isn't blank on
+      // first open. isDemoData=true marks them as such; the moment the user uploads
+      // any real file (see evictDemoDataIfNeeded), they are wiped out completely --
+      // real and fictitious figures must never coexist in a financial dashboard.
+      isDemoData: true,
+      items: [
+        { key: 'name:شاشة سامسونج 65 بوصة 4k', name: "شاشة سامسونج 65 بوصة 4K", cat: "إلكترونيات", cost: 1800, price: 2800, qtyInitial: 20, qtyFinal: 15, soldYr: 85, auditQty: 15, auditDate: "2026-08-20" },
+        { key: 'name:ثلاجة إل جي 18 قدم نوفرست', name: "ثلاجة إل جي 18 قدم نوفرست", cat: "أجهزة منزلية", cost: 2400, price: 3600, qtyInitial: 10, qtyFinal: 8, soldYr: 32, auditQty: 8, auditDate: "2026-08-20" },
+        { key: 'name:غسالة توشيبا 7 كيلو أوتوماتيك', name: "غسالة توشيبا 7 كيلو أوتوماتيك", cat: "أجهزة منزلية", cost: 1100, price: 1650, qtyInitial: 15, qtyFinal: 12, soldYr: 45, auditQty: 11, auditDate: "2026-08-20" },
+        { key: 'name:ماكينة قهوة ديلونجي ديديكا', name: "ماكينة قهوة ديلونجي ديديكا", cat: "أجهزة منزلية", cost: 450, price: 750, qtyInitial: 40, qtyFinal: 35, soldYr: 120, auditQty: 35, auditDate: "2026-08-20" },
+        { key: 'name:سماعة أبل ايربودز برو 2', name: "سماعة أبل ايربودز برو 2", cat: "إلكترونيات", cost: 650, price: 950, qtyInitial: 50, qtyFinal: 42, soldYr: 210, auditQty: 42, auditDate: "2026-08-20" },
+        { key: 'name:خلاط مولينكس 500 واط مع ملحقات', name: "خلاط مولينكس 500 واط مع ملحقات", cat: "أدوات مطبخ", cost: 120, price: 220, qtyInitial: 80, qtyFinal: 75, soldYr: 180, auditQty: 75, auditDate: "2026-08-20" },
+        { key: 'name:قلاية هوائية فيليبس xl', name: "قلاية هوائية فيليبس XL", cat: "أدوات مطبخ", cost: 380, price: 620, qtyInitial: 30, qtyFinal: 22, soldYr: 140, auditQty: 22, auditDate: "2026-08-20" },
+        { key: 'name:مكواة بخار تيفال 2000 واط', name: "مكواة بخار تيفال 2000 واط", cat: "أجهزة منزلية", cost: 95, price: 160, qtyInitial: 60, qtyFinal: 58, soldYr: 25, auditQty: 58, auditDate: "2026-08-20" },
+        { key: 'name:مروحة سقف توشيبا 56 بوصة', name: "مروحة سقف توشيبا 56 بوصة", cat: "أجهزة منزلية", cost: 180, price: 290, qtyInitial: 25, qtyFinal: 24, soldYr: 8, auditQty: 24, auditDate: "2026-08-20" },
+        { key: 'name:تلفزيون سوني 55 بوصة oled', name: "تلفزيون سوني 55 بوصة OLED", cat: "إلكترونيات", cost: 3200, price: 4800, qtyInitial: 5, qtyFinal: 4, soldYr: 18, auditQty: 4, auditDate: "2026-08-20" }
+      ],
+      moves: [
+        { date: "2026-08-01", reference: "WH/IN/00101", product: "شاشة سامسونج 65 بوصة 4K", from_loc: "Vendors/موردين", to_loc: "WH/Stock", qty: 20, uom: "قطعة", moveType: "purchase" },
+        { date: "2026-08-05", reference: "WH/OUT/00342", product: "شاشة سامسونج 65 بوصة 4K", from_loc: "WH/Stock", to_loc: "Customers/عملاء", qty: 5, uom: "قطعة", moveType: "sale" },
+        { date: "2026-08-10", reference: "WH/OUT/00389", product: "غسالة توشيبا 7 كيلو أوتوماتيك", from_loc: "WH/Stock", to_loc: "Customers/عملاء", qty: 4, uom: "قطعة", moveType: "sale" },
+        { date: "2026-08-12", reference: "WH/IN/00115", product: "سماعة أبل ايربودز برو 2", from_loc: "Vendors/موردين", to_loc: "WH/Stock", qty: 30, uom: "قطعة", moveType: "purchase" },
+        { date: "2026-08-15", reference: "WH/OUT/00412", product: "سماعة أبل ايربودز برو 2", from_loc: "WH/Stock", to_loc: "Customers/عملاء", qty: 38, uom: "قطعة", moveType: "sale" }
+      ],
+      // Manual reconciliation for moves-file product names that don't match any
+      // inventory item by name (see the "X% unmatched" data-quality note). Keyed by
+      // normalizeMatchKey(rawProductNameFromMovesFile). Value is either
+      // {type:'mapped', itemKey} -- count this name's moves toward that real item --
+      // or {type:'ignored'} -- confirmed not a real inventory item (e.g. a consumable/
+      // supply also tracked in the moves log but never in the valuation file), so stop
+      // flagging it. Persisted locally so this reconciliation work survives a reload
+      // and doesn't need repeating on every re-upload of the same moves file.
+      productAliases: loadProductAliases()
+    };
+
+    function loadProductAliases() {
+      try { return JSON.parse(localStorage.getItem("product_aliases") || "{}"); } catch (e) { return {}; }
+    }
+    function saveProductAliases() {
+      localStorage.setItem("product_aliases", JSON.stringify(state.productAliases));
+    }
+    // Resolves a raw moves-file product name to the normalized key it should be
+    // aggregated under, honoring any manual alias. Returns null when the name is
+    // confirmed "ignored" (not a real inventory item) -- its moves are excluded from
+    // both matching AND the unmatched-count warning, never silently counted as zero.
+    function resolveAliasedProductKey(rawProductName) {
+      const normKey = normalizeMatchKey(rawProductName);
+      const alias = state.productAliases[normKey];
+      if (!alias) return normKey;
+      if (alias.type === "ignored") return null;
+      if (alias.type === "mapped") {
+        const targetItem = state.items.find(it => it.key === alias.itemKey);
+        return targetItem ? normalizeMatchKey(targetItem.name) : normKey; // target vanished -- fall back rather than crash
+      }
+      return normKey;
+    }
+
+    // Shared by the data-quality banner note AND the "Unmatched Products" reconciliation
+    // modal -- one source of truth for "which moves-file product names don't correspond
+    // to any known inventory item", ranked by total quantity moved so the highest-impact
+    // mismatches surface first (with 9,000+ distinct names, impact ranking is what makes
+    // manual reconciliation actually tractable instead of an undifferentiated wall of names).
+    function computeUnmatchedProductStats() {
+      const knownItemKeys = new Set(state.items.map(it => normalizeMatchKey(it.name)).filter(Boolean));
+      const stats = {};
+      state.moves.forEach(m => {
+        const key = resolveAliasedProductKey(m.product);
+        if (!key || knownItemKeys.has(key)) return;
+        if (!stats[key]) stats[key] = { key, displayName: normalizeText(m.product) || key, totalQty: 0, moveCount: 0 };
+        stats[key].totalQty += Math.abs(Number(m.qty) || 0);
+        stats[key].moveCount += 1;
+      });
+      return Object.values(stats).sort((a, b) => b.totalQty - a.totalQty);
+    }
+
+    function getMoveKeywords() {
+      return {
+        customer: splitKeywords(settings.customerKw),
+        vendor: splitKeywords(settings.vendorKw),
+        scrap: splitKeywords(settings.scrapKw)
+      };
+    }
+    function getMainWarehouseKeywords() { return splitKeywords(settings.mainWarehouseKw); }
+
+    function setUploadLoading(isLoading, text) {
       const loader = document.getElementById("uploadLoader");
       const statusText = document.getElementById("uploadStatusText");
-      if (isLoading) {
-        statusText.innerText = text || "جاري المعالجة...";
-        loader.classList.remove("hidden");
-      } else {
-        loader.classList.add("hidden");
-      }
+      if (isLoading) { statusText.innerText = text || "جاري المعالجة..."; loader.classList.remove("hidden"); }
+      else loader.classList.add("hidden");
+    }
+    function showDataQualityBanner(lines) {
+      const el = document.getElementById("dataQualityBanner");
+      if (!lines || !lines.length) { el.classList.add("hidden"); el.innerHTML = ""; return; }
+      el.innerHTML = lines.map(l => `<div class="mt-1">${l}</div>`).join("");
+      el.classList.remove("hidden");
     }
 
-    // Tab Switching Logic
     window.switchTab = function(tabName) {
       document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
       document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
-
       document.getElementById(`tab-${tabName}`).classList.add('active');
       document.getElementById(`nav-${tabName}`).classList.add('active');
     };
 
-    // Supabase Cloud Storage Initialization
+    /* ============================================================================
+       SECTION C — Supabase cloud sync
+       ============================================================================ */
     async function initSupabase() {
-      const url = localStorage.getItem("supabase_url") || document.getElementById("supabaseUrlInput").value;
-      const key = localStorage.getItem("supabase_key") || document.getElementById("supabaseKeyInput").value;
-
+      const url = localStorage.getItem("supabase_url") || "";
+      const key = localStorage.getItem("supabase_key") || "";
+      document.getElementById("supabaseUrlInput").value = url;
+      document.getElementById("supabaseKeyInput").value = key;
       if (url && key) {
         try {
           supabaseClient = window.supabase.createClient(url, key);
-          localStorage.setItem("supabase_url", url);
-          localStorage.setItem("supabase_key", key);
-          document.getElementById("supabaseUrlInput").value = url;
-          document.getElementById("supabaseKeyInput").value = key;
           await loadCloudData();
           return true;
-        } catch (e) {
-          console.error("Supabase connection error:", e);
-        }
+        } catch (e) { console.error("Supabase connection error:", e); document.getElementById("cloudStatusText").innerText = "⚠️ تعذر الاتصال: " + e.message; }
       }
       return false;
     }
-
+    // Supabase (like PostgREST generally) caps an unpaginated select at 1000 rows by
+    // default -- with a real dataset of 33,000+ items and 50,000+ moves, a plain
+    // .select("*") would silently return only the first 1000 rows with NO error,
+    // meaning the dashboard would quietly show a fraction of the real inventory after
+    // every reload. This pages through with .range() until a page comes back short.
+    async function selectAllRows(tableName) {
+      const PAGE_SIZE = 1000;
+      let all = [], from = 0;
+      while (true) {
+        const { data, error } = await supabaseClient.from(tableName).select("*").range(from, from + PAGE_SIZE - 1);
+        if (error) return { data: all, error };
+        if (!data || data.length === 0) break;
+        all = all.concat(data);
+        if (data.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+      }
+      return { data: all, error: null };
+    }
     async function loadCloudData() {
       if (!supabaseClient) return;
       try {
         setUploadLoading(true, "جاري استدعاء البيانات من السحابة (Supabase)...");
-        const { data: cloudItems, error: itemsErr } = await supabaseClient.from("inventory_items").select("*");
-        if (!itemsErr && cloudItems && cloudItems.length > 0) {
-          state.items = cloudItems;
-        }
-
-        const { data: cloudMoves, error: movesErr } = await supabaseClient.from("stock_moves").select("*");
-        if (!movesErr && cloudMoves && cloudMoves.length > 0) {
-          state.moves = cloudMoves;
-        }
-        updateDashboard();
+        const { data: cloudItems, error: itemsErr } = await selectAllRows("inventory_items");
+        if (!itemsErr && cloudItems && cloudItems.length > 0) { state.items = cloudItems; state.isDemoData = false; }
+        else if (itemsErr) console.warn("inventory_items load error:", itemsErr.message);
+        const { data: cloudMoves, error: movesErr } = await selectAllRows("stock_moves");
+        if (!movesErr && cloudMoves && cloudMoves.length > 0) { state.moves = cloudMoves; state.isDemoData = false; }
+        else if (movesErr) console.warn("stock_moves load error:", movesErr.message);
+        recomputeAndRenderAll();
+        document.getElementById("cloudStatusText").innerText = `✅ متصل ومزامَن مع Supabase (${state.items.length.toLocaleString('en-US')} صنف، ${state.moves.length.toLocaleString('en-US')} حركة).`;
       } catch (err) {
         console.warn("Cloud load failed, using local cache:", err);
-      } finally {
-        setUploadLoading(false);
-      }
+        document.getElementById("cloudStatusText").innerText = "⚠️ فشلت المزامنة، يتم العمل بالبيانات المحلية.";
+      } finally { setUploadLoading(false); }
     }
-
     async function batchUpsert(tableName, dataArray) {
       if (!supabaseClient || !dataArray.length) return;
       const CHUNK_SIZE = 500;
@@ -661,57 +1283,56 @@
       }
     }
 
-    // Main Calculations & Dashboard Update Pipeline
+    /* ============================================================================
+       SECTION D — Financial calculations & rendering
+       ============================================================================ */
     function processInventoryData() {
-      const movesByProduct = {};
+      const { byProduct, usedFallback } = aggregateMovesByProduct(state.moves, getMainWarehouseKeywords());
+      const notes = [];
+      if (usedFallback && state.moves.length) {
+        notes.push('⚠️ لم يتم العثور على أي حركة تطابق "موقع المخزن الرئيسي" المحدد في الإعدادات — تم استخدام تصنيف احتياطي (المبيعات كمنصرف، المشتريات كوارد) لحساب الوارد/المنصرف. لدقة أعلى، اضبط "اسم مخزنك الرئيسي" من الإعدادات لتطابق أسماء مواقعك الفعلية.');
+      }
 
-      state.moves.forEach(m => {
-        const pName = cleanText(m.product);
-        if (!pName) return;
-        if (!movesByProduct[pName]) {
-          movesByProduct[pName] = { in: 0, out: 0 };
-        }
-        const qty = Math.abs(Number(m.qty) || 0);
+      // Transparency check (never silent): a move can only affect an item's turnover if
+      // its "Product" text matches an inventory item's name EXACTLY (after normalization,
+      // and after any manual alias below). If a real chunk of the moves file refers to
+      // product names that don't exist at all in the uploaded valuation/balance data,
+      // that is a genuine identity mismatch between the two files -- surfaced here
+      // explicitly instead of just showing 0.0x turnover everywhere with no explanation,
+      // and made ACTIONABLE via the "غير مطابق" reconciliation list (see
+      // computeUnmatchedProductStats), not just reported and left unresolved forever.
+      const unmatchedStats = computeUnmatchedProductStats();
+      if (unmatchedStats.length > 0 && state.items.length > 0) {
+        const totalDistinctMoveProducts = new Set(state.moves.map(m => resolveAliasedProductKey(m.product)).filter(Boolean)).size;
+        const pct = totalDistinctMoveProducts > 0 ? Math.round((unmatchedStats.length / totalDistinctMoveProducts) * 100) : 0;
+        const sampleNames = unmatchedStats.slice(0, 3).map(s => s.displayName);
+        notes.push(`⚠️ ${unmatchedStats.length.toLocaleString('en-US')} صنف من أسماء ملف الحركات (${pct}% من الأصناف المذكورة هناك) لا يُطابق أي صنف في بيانات المخزون الحالية — حركات هذه الأصناف لن تُحتسب في معدل الدوران/الأيام حتى تُربط أو تُستبعد يدوياً. أمثلة: ${sampleNames.join(' | ')}. راجعها وحلّها من زر "⚠️ صنف غير مطابق" في تبويب سجل الحركات — إما بربطها بصنف موجود (لو نفس المنتج باسم مختلف)، أو بتجاهلها نهائياً (لو منتج/خامة مش من أصناف المخزون المُقيّمة أصلاً).`);
+      }
 
-        const isOut = m.to_loc && (m.to_loc.includes("Virtual") || m.to_loc.includes("Customer") || m.to_loc.includes("عملاء"));
-        const isIn = m.from_loc && (m.from_loc.includes("Virtual") || m.from_loc.includes("Vendor") || m.from_loc.includes("موردين"));
-
-        if (isOut) movesByProduct[pName].out += qty;
-        else if (isIn) movesByProduct[pName].in += qty;
-      });
-
-      return state.items.map(item => {
-        const pName = cleanText(item.name);
-        const moveData = movesByProduct[pName] || { in: 0, out: 0 };
-
+      const processed = state.items.map(item => {
+        const pName = normalizeText(item.name);
+        const moveData = byProduct[normalizeMatchKey(pName)] || { totalIn: 0, totalOut: 0, totalSold: 0, totalPurchased: 0, unknownQty: 0 };
         const qtyInitial = Number(item.qtyInitial) || 0;
-        const totalIn = moveData.in;
-        const totalOut = moveData.out;
-
-        const qtyOnHand = item.qtyFinal !== undefined && item.qtyFinal !== null ? Number(item.qtyFinal) : (qtyInitial + totalIn - totalOut);
-        const actualSoldQty = totalOut > 0 ? totalOut : (Number(item.soldYr) || 0);
-
+        const totalIn = moveData.totalIn;
+        const totalOut = moveData.totalOut;
+        const qtyOnHand = (item.qtyFinal !== undefined && item.qtyFinal !== null) ? Number(item.qtyFinal) : (qtyInitial + totalIn - totalOut);
+        const actualSoldQty = moveData.totalSold > 0 ? moveData.totalSold : (Number(item.soldYr) || 0);
         const unitCost = Number(item.cost) || 0;
         const salesPrice = Number(item.price) || 0;
-        const stockValue = item.stockValue !== undefined ? Number(item.stockValue) : (qtyOnHand * unitCost);
+        const stockValue = (item.stockValue !== undefined && item.stockValue !== null) ? Number(item.stockValue) : (qtyOnHand * unitCost);
 
-        // Turnovers & Metrics
         const turnoverRate = qtyOnHand > 0 ? parseFloat((actualSoldQty / qtyOnHand).toFixed(2)) : (actualSoldQty > 0 ? 99 : 0);
         const daysOfInventory = turnoverRate > 0 ? Math.round(365 / turnoverRate) : 999;
 
-        // Classification 1: Movement Status
-        let movementStatus = "راكد";
-        let badgeClass = "dead";
+        let movementStatus = "راكد", badgeClass = "dead";
         if (turnoverRate >= 4) { movementStatus = "سريع الدوران"; badgeClass = "fast"; }
         else if (turnoverRate >= 1.5) { movementStatus = "دوران طبيعي"; badgeClass = "normal"; }
         else if (turnoverRate > 0) { movementStatus = "بطيء الدوران"; badgeClass = "slow"; }
 
-        // Classification 2: Dynamic Price Classes
         let priceClass = "C+";
-        if (salesPrice <= priceConfig.limitCMinus) priceClass = "C-";
-        else if (salesPrice <= priceConfig.limitCMid) priceClass = "C";
+        if (salesPrice <= settings.limitCMinus) priceClass = "C-";
+        else if (salesPrice <= settings.limitCMid) priceClass = "C";
 
-        // Discount Limits Rules based on Target Margin
         let maxDiscountPct = 0;
         if (salesPrice > 0 && unitCost > 0) {
           const minAllowedPrice = unitCost / (1 - state.targetMargin);
@@ -722,114 +1343,114 @@
         const floorPrice = parseFloat((salesPrice * (1 - (maxDiscountPct / 100))).toFixed(2));
 
         return {
-          ...item,
-          displayName: pName,
-          category: item.cat || "عام",
-          qtyInitial,
-          totalIn,
-          totalOut,
-          qtyOnHand,
-          actualSoldQty,
-          unitCost,
-          salesPrice,
-          stockValue,
-          turnoverRate,
-          daysOfInventory,
-          movementStatus,
-          badgeClass,
-          priceClass,
-          maxDiscountPct,
-          floorPrice,
-          auditQty: item.auditQty !== undefined ? Number(item.auditQty) : null,
+          ...item, displayName: pName,
+          category: (item.catRaw ? deriveCategoryLabel(item.catRaw, settings.categoryLevelMode) : item.cat) || "عام",
+          qtyInitial, totalIn, totalOut, qtyOnHand, actualSoldQty, unitCost, salesPrice, stockValue,
+          turnoverRate, daysOfInventory, movementStatus, badgeClass, priceClass, maxDiscountPct, floorPrice,
+          auditQty: (item.auditQty !== undefined && item.auditQty !== null) ? Number(item.auditQty) : null,
           auditDate: item.auditDate || '-'
         };
       });
+      return { processed, notes, unmatchedStats };
     }
 
-    function updateDashboard() {
-      const processed = processInventoryData();
+    // Heavy path: recomputes all financial figures from scratch. Call this ONLY when
+    // state.items / state.moves / settings / targetMargin actually changed.
+    function recomputeAndRenderAll() {
+      const { processed, notes, unmatchedStats } = processInventoryData();
+      cachedProcessed = processed;
+      lastDataQualityNotes = notes;
+      lastUnmatchedStats = unmatchedStats;
+      const unmatchedBtn = document.getElementById("openUnmatchedProductsBtn");
+      if (unmatchedStats.length > 0) {
+        unmatchedBtn.classList.remove("hidden");
+        document.getElementById("unmatchedProductsBtnCount").innerText = unmatchedStats.length.toLocaleString('en-US');
+      } else {
+        unmatchedBtn.classList.add("hidden");
+      }
+      if (state.isDemoData) {
+        notes.unshift('📊 الأرقام المعروضة الآن هي <strong>بيانات تجريبية للعرض فقط</strong> (ليست بياناتك الحقيقية) — ستُحذف تلقائياً بمجرد رفع أول ملف حقيقي من الأزرار أعلاه.');
+      }
+      showDataQualityBanner(notes);
 
-      // Update KPI Cards
       const totalVal = processed.reduce((sum, i) => sum + i.stockValue, 0);
       const totalSold = processed.reduce((sum, i) => sum + i.actualSoldQty, 0);
       const totalQty = processed.reduce((sum, i) => sum + i.qtyOnHand, 0);
       const avgTurnover = totalQty > 0 ? (totalSold / totalQty).toFixed(2) : "0.0";
       const avgDays = Number(avgTurnover) > 0 ? Math.round(365 / Number(avgTurnover)) : 0;
-
       document.getElementById("kpiTotalValue").innerText = Math.round(totalVal).toLocaleString('en-US');
       document.getElementById("kpiAvgTurnover").innerText = `${avgTurnover}x`;
       document.getElementById("kpiAvgDays").innerText = avgDays;
       document.getElementById("kpiTotalItems").innerText = processed.length.toLocaleString('en-US');
 
-      // Populate Category Dropdown Filter
       const categories = Array.from(new Set(processed.map(i => i.category)));
       const catSelect = document.getElementById("categoryFilter");
       const currentCat = catSelect.value;
       catSelect.innerHTML = `<option value="">جميع التصنيفات</option>` + categories.map(c => `<option value="${c}">${c}</option>`).join('');
       catSelect.value = currentCat;
 
-      // Render Tables & Charts
       renderCategorySummary(processed);
-      renderInventoryTable(processed);
-      renderAuditTable(processed);
-      renderMovesTable();
       renderCharts(processed);
+      inventoryRenderLimit = 300;
+      movesRenderLimit = 300;
+      refreshInventoryView();
+      renderAuditTable(processed);
+      refreshMovesView();
     }
 
+    // Shared by both the on-screen render AND the Excel export.
+    function computeCategorySummary(processed) {
+      const groups = {};
+      processed.forEach(i => {
+        if (!groups[i.category]) groups[i.category] = { category: i.category, count: 0, stockVal: 0, soldQty: 0, turnoverSum: 0 };
+        const g = groups[i.category];
+        g.count += 1; g.stockVal += i.stockValue; g.soldQty += i.actualSoldQty; g.turnoverSum += i.turnoverRate;
+      });
+      return Object.values(groups).map(g => ({ ...g, avgTurnover: parseFloat((g.turnoverSum / g.count).toFixed(2)) }));
+    }
     function renderCategorySummary(processed) {
       const tbody = document.getElementById("categorySummaryBody");
-      const groups = {};
-
-      processed.forEach(i => {
-        if (!groups[i.category]) {
-          groups[i.category] = { count: 0, stockVal: 0, soldQty: 0, turnoverSum: 0 };
-        }
-        groups[i.category].count += 1;
-        groups[i.category].stockVal += i.stockValue;
-        groups[i.category].soldQty += i.actualSoldQty;
-        groups[i.category].turnoverSum += i.turnoverRate;
-      });
-
-      let html = '';
-      for (let cat in groups) {
-        const g = groups[cat];
-        const avgTurn = (g.turnoverSum / g.count).toFixed(2);
-        html += `
-          <tr>
-            <td class="p-3"><strong>${cat}</strong></td>
+      const rows = computeCategorySummary(processed);
+      const html = rows.map(g => `<tr>
+            <td class="p-3"><strong>${g.category}</strong></td>
             <td class="p-3 num">${g.count.toLocaleString('en-US')}</td>
             <td class="p-3 num">${g.stockVal.toLocaleString('en-US', {maximumFractionDigits: 0})}</td>
             <td class="p-3 num">${g.soldQty.toLocaleString('en-US')}</td>
-            <td class="p-3 num">${avgTurn}x</td>
-          </tr>
-        `;
-      }
-      tbody.innerHTML = html;
+            <td class="p-3 num">${g.avgTurnover.toFixed(2)}x</td>
+          </tr>`).join('');
+      tbody.innerHTML = html || `<tr><td colspan="5" class="p-4 text-center text-slate-400">لا توجد بيانات بعد — ابدأ برفع ملفات المخزون</td></tr>`;
     }
 
-    function renderInventoryTable(processed) {
-      const tbody = document.getElementById("inventoryTableBody");
-      let filtered = processed.filter(i => {
+    // Shared by both the on-screen render AND the Excel export -- so "export" always
+    // means exactly "everything matching your current filters/search", never just the
+    // ~300 rows currently painted on screen, and never a separately-computed list that
+    // could silently drift out of sync with what you're looking at.
+    function getFilteredSortedInventory() {
+      let filtered = cachedProcessed.filter(i => {
         if (state.category && i.category !== state.category) return false;
         if (state.movement && i.movementStatus !== state.movement) return false;
         if (state.priceClass && i.priceClass !== state.priceClass) return false;
-        if (state.search) {
-          const q = state.search.toLowerCase();
-          if (!i.displayName.toLowerCase().includes(q)) return false;
-        }
+        if (state.search) { const q = state.search.toLowerCase(); if (!i.displayName.toLowerCase().includes(q)) return false; }
         return true;
       });
-
       filtered.sort((a, b) => {
-        let valA = a[state.sortKey];
-        let valB = b[state.sortKey];
-        if (typeof valA === 'string') {
-          return state.sortDir * valA.localeCompare(valB, 'ar');
-        }
+        let valA = a[state.sortKey], valB = b[state.sortKey];
+        if (typeof valA === 'string') return state.sortDir * valA.localeCompare(valB, 'ar');
         return state.sortDir * ((valA || 0) - (valB || 0));
       });
+      return filtered;
+    }
 
-      tbody.innerHTML = filtered.map(i => `
+    // Cheap path: filters/sorts/paginates the ALREADY-COMPUTED cachedProcessed array.
+    // Safe to call on every search keystroke / filter change / "load more" click --
+    // does not touch aggregateMovesByProduct or any per-item math.
+    function refreshInventoryView() {
+      const tbody = document.getElementById("inventoryTableBody");
+      const filtered = getFilteredSortedInventory();
+      document.querySelectorAll('#tab-inventory th.th-sort').forEach(th => th.classList.toggle('sorted', th.dataset.key === state.sortKey));
+
+      const visible = filtered.slice(0, inventoryRenderLimit);
+      tbody.innerHTML = visible.map(i => `
         <tr class="hover:bg-slate-50">
           <td class="p-3 font-semibold text-slate-900">${i.displayName}</td>
           <td class="p-3">${i.category}</td>
@@ -844,138 +1465,133 @@
           <td class="p-3 num text-amber-600 font-bold">${i.maxDiscountPct}%</td>
           <td class="p-3 num font-bold text-emerald-700">${i.floorPrice.toLocaleString('en-US')}</td>
           <td class="p-3 num font-bold">${i.stockValue.toLocaleString('en-US', {maximumFractionDigits: 0})}</td>
-        </tr>
-      `).join('');
+        </tr>`).join('') || `<tr><td colspan="13" class="p-6 text-center text-slate-400">لا توجد أصناف مطابقة</td></tr>`;
+
+      document.getElementById("inventoryCountLabel").innerText =
+        filtered.length ? `يعرض ${visible.length.toLocaleString('en-US')} من إجمالي ${filtered.length.toLocaleString('en-US')} صنف` : '';
+      const loadMoreEl = document.getElementById("inventoryLoadMoreRow");
+      loadMoreEl.innerHTML = filtered.length > visible.length
+        ? `<button id="inventoryLoadMoreBtn" class="load-more-btn">عرض المزيد (+300) — المتبقي ${(filtered.length - visible.length).toLocaleString('en-US')}</button>` : '';
+      const btn = document.getElementById("inventoryLoadMoreBtn");
+      if (btn) btn.addEventListener("click", () => { inventoryRenderLimit += 300; refreshInventoryView(); });
     }
 
+    // Shared by both the on-screen render AND the Excel export.
+    function computeAuditRow(i) {
+      const computedFinal = i.qtyInitial + i.totalIn - i.totalOut;
+      const auditVal = i.auditQty;
+      let diff = 0, statusText = 'لم يجرد بعد';
+      if (auditVal !== null) {
+        diff = auditVal - computedFinal;
+        statusText = diff === 0 ? 'مطابق' : (diff < 0 ? `عجز (${diff})` : `زيادة (+${diff})`);
+      }
+      return { ...i, computedFinal, auditVal, diff, statusText };
+    }
     function renderAuditTable(processed) {
       const tbody = document.getElementById("auditTableBody");
       tbody.innerHTML = processed.map(i => {
-        const computedFinal = i.qtyInitial + i.totalIn - i.totalOut;
-        const auditVal = i.auditQty;
-        let diff = 0;
-        let matchStatusHtml = '<span class="badge normal">لم يجرد بعد</span>';
-
-        if (auditVal !== null) {
-          diff = auditVal - computedFinal;
-          if (diff === 0) {
-            matchStatusHtml = '<span class="badge match">مطابق ✅</span>';
-          } else if (diff < 0) {
-            matchStatusHtml = `<span class="badge diff">عجز (${diff}) ⚠️</span>`;
-          } else {
-            matchStatusHtml = `<span class="badge match">زيادة (+${diff}) 📈</span>`;
-          }
+        const r = computeAuditRow(i);
+        let matchStatusHtml = '<span class="badge pending">لم يجرد بعد</span>';
+        if (r.auditVal !== null) {
+          matchStatusHtml = r.diff === 0 ? '<span class="badge match">مطابق ✅</span>'
+            : (r.diff < 0 ? `<span class="badge diff">عجز (${r.diff}) ⚠️</span>` : `<span class="badge match">زيادة (+${r.diff}) 📈</span>`);
         }
-
-        return `
-          <tr class="hover:bg-slate-50">
+        return `<tr class="hover:bg-slate-50">
             <td class="p-3 font-semibold text-slate-900">${i.displayName}</td>
             <td class="p-3 num">${i.qtyInitial.toLocaleString('en-US')}</td>
             <td class="p-3 num text-emerald-600 font-semibold">${i.totalIn.toLocaleString('en-US')}</td>
             <td class="p-3 num text-rose-600 font-semibold">${i.totalOut.toLocaleString('en-US')}</td>
-            <td class="p-3 num font-bold">${computedFinal.toLocaleString('en-US')}</td>
-            <td class="p-3 num font-bold text-blue-600">${auditVal !== null ? auditVal.toLocaleString('en-US') : '-'}</td>
+            <td class="p-3 num font-bold">${r.computedFinal.toLocaleString('en-US')}</td>
+            <td class="p-3 num font-bold text-blue-600">${r.auditVal !== null ? r.auditVal.toLocaleString('en-US') : '-'}</td>
             <td class="p-3">${i.auditDate}</td>
-            <td class="p-3 num font-bold ${diff < 0 ? 'text-rose-600' : diff > 0 ? 'text-emerald-600' : 'text-slate-500'}">${diff !== 0 ? diff.toLocaleString('en-US') : '0'}</td>
+            <td class="p-3 num font-bold ${r.diff < 0 ? 'text-rose-600' : r.diff > 0 ? 'text-emerald-600' : 'text-slate-500'}">${r.diff !== 0 ? r.diff.toLocaleString('en-US') : '0'}</td>
             <td class="p-3">${matchStatusHtml}</td>
-          </tr>
-        `;
-      }).join('');
+          </tr>`;
+      }).join('') || `<tr><td colspan="9" class="p-6 text-center text-slate-400">لا توجد بيانات جرد بعد</td></tr>`;
     }
 
-    function renderMovesTable() {
-      const tbody = document.getElementById("movesTableBody");
-      let filtered = state.moves.filter(m => {
-        if (state.moveType === 'OUT') {
-          const isOut = m.to_loc && (m.to_loc.includes("Virtual") || m.to_loc.includes("Customer") || m.to_loc.includes("عملاء"));
-          if (!isOut) return false;
-        }
-        if (state.moveType === 'IN') {
-          const isIn = m.from_loc && (m.from_loc.includes("Virtual") || m.from_loc.includes("Vendor") || m.from_loc.includes("موردين"));
-          if (!isIn) return false;
-        }
+    const MOVE_TYPE_LABELS = {
+      sale: { text: "منصرف / مبيعات", cls: "out" },
+      purchase: { text: "وارد / مشتريات", cls: "in" },
+      transfer: { text: "تحويل مخزني", cls: "transfer" },
+      scrap_out: { text: "هالك / تالف", cls: "scrap" },
+      scrap_in: { text: "تسوية جرد", cls: "scrap" }
+    };
+    // Shared by both the on-screen render AND the Excel export (see getFilteredSortedInventory).
+    function getFilteredMoves() {
+      return state.moves.filter(m => {
+        if (state.moveType && m.moveType !== state.moveType) return false;
         if (state.movesSearch) {
           const q = state.movesSearch.toLowerCase();
-          const pName = (m.product || "").toLowerCase();
-          const ref = (m.reference || "").toLowerCase();
+          const pName = (m.product || "").toLowerCase(), ref = (m.reference || "").toLowerCase();
           if (!pName.includes(q) && !ref.includes(q)) return false;
         }
         return true;
       });
-
-      tbody.innerHTML = filtered.slice(0, 300).map(m => {
-        const isOut = m.to_loc && (m.to_loc.includes("Virtual") || m.to_loc.includes("Customer") || m.to_loc.includes("عملاء"));
-        const badgeClass = isOut ? 'badge out' : 'badge in';
-        const moveTypeText = isOut ? 'صرف / مبيعات' : 'إضافة / توريد';
-
-        return `
-          <tr class="hover:bg-slate-50">
+    }
+    // Cheap path: filters/sorts/paginates state.moves directly. Safe on every keystroke.
+    function refreshMovesView() {
+      const tbody = document.getElementById("movesTableBody");
+      const filtered = getFilteredMoves();
+      const visible = filtered.slice(0, movesRenderLimit);
+      tbody.innerHTML = visible.map(m => {
+        const label = MOVE_TYPE_LABELS[m.moveType] || { text: m.moveType || "غير محدد", cls: "unknown" };
+        return `<tr class="hover:bg-slate-50">
             <td class="p-3 num">${m.date || '-'}</td>
             <td class="p-3 font-medium text-slate-700">${m.reference || '-'}</td>
-            <td class="p-3 font-semibold text-slate-900">${cleanText(m.product)}</td>
+            <td class="p-3 font-semibold text-slate-900">${normalizeText(m.product)}</td>
             <td class="p-3 text-slate-500">${m.from_loc || '-'}</td>
             <td class="p-3 text-slate-500">${m.to_loc || '-'}</td>
             <td class="p-3 num font-bold">${Math.abs(Number(m.qty) || 0).toLocaleString('en-US')}</td>
-            <td class="p-3 text-slate-500">${m.uom || 'الوحدة'}</td>
-            <td class="p-3"><span class="${badgeClass}">${moveTypeText}</span></td>
-          </tr>
-        `;
-      }).join('');
+            <td class="p-3 text-slate-500">${m.uom || '-'}</td>
+            <td class="p-3"><span class="badge ${label.cls}">${label.text}</span></td>
+          </tr>`;
+      }).join('') || `<tr><td colspan="8" class="p-6 text-center text-slate-400">لا توجد حركات مسجلة بعد</td></tr>`;
+
+      document.getElementById("movesCountLabel").innerText =
+        filtered.length ? `يعرض ${visible.length.toLocaleString('en-US')} من إجمالي ${filtered.length.toLocaleString('en-US')} حركة` : 'يعرض آخر الحركات المسجلة في النظام';
+      const loadMoreEl = document.getElementById("movesLoadMoreRow");
+      loadMoreEl.innerHTML = filtered.length > visible.length
+        ? `<button id="movesLoadMoreBtn" class="load-more-btn">عرض المزيد (+300) — المتبقي ${(filtered.length - visible.length).toLocaleString('en-US')}</button>` : '';
+      const btn = document.getElementById("movesLoadMoreBtn");
+      if (btn) btn.addEventListener("click", () => { movesRenderLimit += 300; refreshMovesView(); });
     }
 
     function renderCharts(processed) {
-      // Chart 1: Movement Status
       const moveCounts = { 'سريع الدوران': 0, 'دوران طبيعي': 0, 'بطيء الدوران': 0, 'راكد': 0 };
       processed.forEach(i => { moveCounts[i.movementStatus] = (moveCounts[i.movementStatus] || 0) + 1; });
-
       if (doughnutChartInstance) doughnutChartInstance.destroy();
       doughnutChartInstance = new Chart(document.getElementById("doughnutChart"), {
         type: 'doughnut',
-        data: {
-          labels: ['سريع الدوران', 'دوران طبيعي', 'بطيء الدوران', 'راكد'],
-          datasets: [{
-            data: [moveCounts['سريع الدوران'], moveCounts['دوران طبيعي'], moveCounts['بطيء الدوران'], moveCounts['راكد']],
-            backgroundColor: ['#16a34a', '#2563eb', '#d97706', '#dc2626']
-          }]
-        },
+        data: { labels: ['سريع الدوران', 'دوران طبيعي', 'بطيء الدوران', 'راكد'],
+          datasets: [{ data: [moveCounts['سريع الدوران'], moveCounts['دوران طبيعي'], moveCounts['بطيء الدوران'], moveCounts['راكد']],
+            backgroundColor: ['#16a34a', '#2563eb', '#d97706', '#dc2626'] }] },
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
       });
-
-      // Chart 2: Price Classes
       const priceCounts = { 'C-': 0, 'C': 0, 'C+': 0 };
       processed.forEach(i => { priceCounts[i.priceClass] = (priceCounts[i.priceClass] || 0) + 1; });
-
       if (priceDoughnutChartInstance) priceDoughnutChartInstance.destroy();
       priceDoughnutChartInstance = new Chart(document.getElementById("priceDoughnutChart"), {
         type: 'doughnut',
-        data: {
-          labels: ['فئة C- (اقتصادي)', 'فئة C (متوسط)', 'فئة C+ (مرتفع)'],
-          datasets: [{
-            data: [priceCounts['C-'], priceCounts['C'], priceCounts['C+']],
-            backgroundColor: ['#9333ea', '#2563eb', '#16a34a']
-          }]
-        },
+        data: { labels: ['فئة C- (اقتصادي)', 'فئة C (متوسط)', 'فئة C+ (مرتفع)'],
+          datasets: [{ data: [priceCounts['C-'], priceCounts['C'], priceCounts['C+']], backgroundColor: ['#9333ea', '#2563eb', '#16a34a'] }] },
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
       });
-
-      // Chart 3: Top Selling
-      const topSold = [...processed].sort((a, b) => b.actualSoldQty - a.actualSoldQty).slice(0, 5);
+      // O(n) top-5 instead of sorting the entire (possibly tens-of-thousands-row) array
+      // just to read off the first 5 -- matters once real datasets get large.
+      const topSold = getTopN(processed, 5, i => i.actualSoldQty);
       if (barChartInstance) barChartInstance.destroy();
       barChartInstance = new Chart(document.getElementById("barChart"), {
         type: 'bar',
-        data: {
-          labels: topSold.map(i => i.displayName.length > 15 ? i.displayName.slice(0,15) + '...' : i.displayName),
-          datasets: [{
-            label: 'المبيعات الفعلية',
-            data: topSold.map(i => i.actualSoldQty),
-            backgroundColor: '#2563eb'
-          }]
-        },
+        data: { labels: topSold.map(i => i.displayName.length > 15 ? i.displayName.slice(0,15) + '...' : i.displayName),
+          datasets: [{ label: 'المبيعات الفعلية', data: topSold.map(i => i.actualSoldQty), backgroundColor: '#2563eb' }] },
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
       });
     }
 
-    // Excel / Sheet Upload Handling
+    /* ============================================================================
+       SECTION E — Excel upload pipeline (parse -> review columns -> merge -> sync)
+       ============================================================================ */
     function parseExcelFile(file) {
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -983,10 +1599,15 @@
           try {
             const data = new Uint8Array(e.target.result);
             const workbook = XLSX.read(data, { type: 'array' });
-            const firstSheetName = workbook.SheetNames[0];
-            const worksheet = workbook.Sheets[firstSheetName];
-            const json = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
-            resolve(json);
+            // Scan every sheet and use the first one that actually contains rows
+            // (guards against a cover/notes sheet being SheetNames[0]).
+            let bestRows = null;
+            for (const name of workbook.SheetNames) {
+              const ws = workbook.Sheets[name];
+              const json = XLSX.utils.sheet_to_json(ws, { defval: "", raw: true });
+              if (json.length > 0 && (!bestRows || json.length > bestRows.length)) bestRows = json;
+            }
+            resolve(bestRows || []);
           } catch (err) { reject(err); }
         };
         reader.onerror = (err) => reject(err);
@@ -994,75 +1615,196 @@
       });
     }
 
+    /* ============================================================================
+       SECTION E.1 — Excel export (mirrors exactly what's on screen: same filters,
+       same sort, same computed values -- never a separate, silently-drifting copy)
+       ============================================================================ */
+    function exportRowsToExcel(filename, rows) {
+      if (!rows.length) { alert("لا توجد بيانات لتصديرها حالياً — عدّل الفلاتر أو ارفع بيانات أولاً."); return false; }
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+      XLSX.writeFile(wb, filename);
+      return true;
+    }
+    // Wraps a (potentially heavy, for tens of thousands of rows) synchronous export in
+    // a brief loading state so the "جاري التصدير" label actually paints before the
+    // single-threaded JS work blocks the UI -- otherwise the button just looks frozen.
+    function runExportWithLoadingState(label, buildAndExportFn) {
+      setUploadLoading(true, label);
+      setTimeout(() => {
+        try { buildAndExportFn(); } catch (err) { console.error(err); alert("حدث خطأ أثناء التصدير: " + err.message); }
+        finally { setUploadLoading(false); }
+      }, 30);
+    }
+    function exportInventoryToExcel() {
+      runExportWithLoadingState("⏳ جاري تجهيز ملف Excel لجدول المخزون...", () => {
+        const rows = getFilteredSortedInventory().map(i => ({
+          "الصنف": i.displayName, "الفئة": i.category, "الفئة السعرية": i.priceClass,
+          "المخزون الحالي": i.qtyOnHand, "المبيعات الفعلية": i.actualSoldQty,
+          "التكلفة": i.unitCost, "سعر البيع": i.salesPrice, "معدل الدوران": i.turnoverRate,
+          "أيام التغطية": i.daysOfInventory, "حالة الحركة": i.movementStatus,
+          "أقصى خصم %": i.maxDiscountPct, "حد السعر الأدنى": i.floorPrice, "إجمالي القيمة": i.stockValue
+        }));
+        exportRowsToExcel(`جدول_المخزون_${new Date().toISOString().slice(0,10)}.xlsx`, rows);
+      });
+    }
+    function exportCategorySummaryToExcel() {
+      runExportWithLoadingState("⏳ جاري تجهيز ملف Excel لملخص الفئات...", () => {
+        const rows = computeCategorySummary(cachedProcessed).map(g => ({
+          "الفئة": g.category, "عدد الأصناف": g.count, "إجمالي قيمة المخزون": Math.round(g.stockVal),
+          "إجمالي الكميات المباعة": g.soldQty, "متوسط معدل الدوران": g.avgTurnover
+        }));
+        exportRowsToExcel(`ملخص_الفئات_${new Date().toISOString().slice(0,10)}.xlsx`, rows);
+      });
+    }
+    function exportAuditToExcel() {
+      runExportWithLoadingState("⏳ جاري تجهيز ملف Excel لمطابقة الجرد...", () => {
+        const rows = cachedProcessed.map(computeAuditRow).map(r => ({
+          "اسم الصنف": r.displayName, "رصيد أول المدة": r.qtyInitial, "الوارد": r.totalIn, "المنصرف": r.totalOut,
+          "الرصيد الدفتري المحسوب": r.computedFinal, "الجرد الفعلي": r.auditVal !== null ? r.auditVal : "",
+          "تاريخ الجرد": r.auditDate, "الفرق": r.diff, "الحالة": r.statusText
+        }));
+        exportRowsToExcel(`مطابقة_الجرد_${new Date().toISOString().slice(0,10)}.xlsx`, rows);
+      });
+    }
+    function exportMovesToExcel() {
+      runExportWithLoadingState("⏳ جاري تجهيز ملف Excel لسجل الحركات...", () => {
+        const rows = getFilteredMoves().map(m => ({
+          "التاريخ": m.date || "", "المرجع": m.reference || "", "الصنف": m.product || "",
+          "من موقع": m.from_loc || "", "إلى موقع": m.to_loc || "", "الكمية": Math.abs(Number(m.qty) || 0),
+          "الوحدة": m.uom || "", "نوع الحركة": (MOVE_TYPE_LABELS[m.moveType] || {}).text || m.moveType
+        }));
+        exportRowsToExcel(`سجل_الحركات_${new Date().toISOString().slice(0,10)}.xlsx`, rows);
+      });
+    }
+
+    function mergeValuationRowIntoItem(itemsMap, row) {
+      if (!itemsMap[row.key]) {
+        itemsMap[row.key] = { key: row.key, name: row.displayName, cat: "عام", cost: 0, price: 0, qtyInitial: 0, qtyFinal: 0, soldYr: 0 };
+      }
+      const it = itemsMap[row.key];
+      if (row.displayName) it.name = row.displayName;
+      if (row.categoryRaw) it.catRaw = row.categoryRaw; // kept so category rule changes can re-derive without a re-upload
+      if (row.category) it.cat = row.category;
+      if (row.unitCost !== null) it.cost = row.unitCost;
+      if (row.salesPrice !== null) it.price = row.salesPrice;
+      if (row.stockValue !== null) it.stockValue = row.stockValue; else delete it.stockValue;
+      if (row.qtyInitial !== null) it.qtyInitial = row.qtyInitial;
+      if (row.qtyFinal !== null) it.qtyFinal = row.qtyFinal;
+      if (row.auditQty !== null) it.auditQty = row.auditQty;
+      if (row.auditDate) it.auditDate = row.auditDate;
+    }
+
+    // Wipes the demo/seed items+moves the very first time the user uploads ANY real
+    // file. Returns true if it actually cleared something (used to tell the user).
+    function evictDemoDataIfNeeded() {
+      if (!state.isDemoData) return false;
+      state.items = [];
+      state.moves = [];
+      state.isDemoData = false;
+      return true;
+    }
+
     async function handleFileUpload(fileInputId, type) {
       const fileInput = document.getElementById(fileInputId);
       if (!fileInput.files || fileInput.files.length === 0) return;
-
       setUploadLoading(true, "⏳ جاري قراءة وتحليل بيانات الملف...");
-
+      let demoWasCleared = false;
       try {
         if (type === 'moves') {
-          let allMoves = [];
-          for (let file of fileInput.files) {
-            const rows = await parseExcelFile(file);
-            const parsed = rows.map(r => ({
-              date: getVal(r, ['التاريخ', 'Date', 'date', 'Creation Date']) || new Date().toISOString().split('T')[0],
-              reference: cleanText(getVal(r, ['المرجع', 'Reference', 'reference', 'Source Document', 'Sequence'])),
-              product: cleanText(getVal(r, ['المنتج', 'Product', 'product', 'Item', 'اسم المنتج'])),
-              from_loc: cleanText(getVal(r, ['من', 'From', 'from_loc', 'Source Location'])),
-              to_loc: cleanText(getVal(r, ['إلى', 'To', 'to_loc', 'Destination Location'])),
-              qty: Math.abs(Number(getVal(r, ['الكمية', 'Quantity', 'qty', 'Demand', 'Done'])) || 0),
-              uom: cleanText(getVal(r, ['وحدة القياس', 'UoM', 'Unit of Measure', 'uom'])) || 'الوحدة'
-            })).filter(m => m.product);
-            allMoves = allMoves.concat(parsed);
+          let allMoves = [], summary = { total: 0, mapped: 0, skippedEmpty: 0 }, aborted = false, sharedCols = null;
+          for (const file of fileInput.files) {
+            setUploadLoading(true, `⏳ جاري قراءة ${file.name}...`);
+            let rows = await parseExcelFile(file);
+            let cols = sharedCols;
+            if (!cols) {
+              const headerIndex = buildHeaderIndex(rows);
+              const autoCols = autoDetectMovesCols(headerIndex);
+              cols = await showMappingReviewModal('moves', headerIndex.headerList, autoCols, rows);
+              if (!cols) { aborted = true; break; }
+              sharedCols = cols; // reuse across the rest of this batch (same export format assumed)
+            }
+            const extracted = extractMovesRows(rows, cols, getMoveKeywords());
+            allMoves = allMoves.concat(extracted.moves);
+            summary.total += extracted.stats.total; summary.mapped += extracted.stats.mapped; summary.skippedEmpty += extracted.stats.skippedEmpty;
           }
-
-          if (supabaseClient) {
-            setUploadLoading(true, `⏳ جاري رفع ${allMoves.length} حركة للسحابة...`);
-            await batchUpsert("stock_moves", allMoves);
+          if (aborted) { alert("تم إلغاء رفع الملف."); return; }
+          demoWasCleared = evictDemoDataIfNeeded();
+          const { addedCount, duplicateCount } = mergeMovesIntoState(allMoves);
+          if (supabaseClient && addedCount) {
+            const newlyAdded = state.moves.slice(-addedCount);
+            setUploadLoading(true, `⏳ جاري رفع ${addedCount} حركة جديدة للسحابة...`);
+            await batchUpsert("stock_moves", newlyAdded);
           }
-          state.moves = allMoves;
-
+          recomputeAndRenderAll();
+          let movesMsg = (demoWasCleared ? `🧹 تم حذف بيانات العرض التجريبية تلقائياً لأن هذا أول رفع حقيقي.\n\n` : '') +
+            `✅ تمت معالجة ملف/ملفات الحركات بنجاح.\nإجمالي الصفوف المقروءة: ${summary.total}\nتم التعرف على: ${summary.mapped} حركة\nتمت إضافتها لسجل الحركات: ${addedCount} حركة جديدة\nتم تجاهلها كتكرار لحركة موجودة مسبقاً: ${duplicateCount}\nتم تجاهل ${summary.skippedEmpty} صف فارغ (بدون اسم صنف).\n\n⚠️ ملاحظة: هذا الرفع يُضيف إلى سجل الحركات المتراكم ولا يستبدله (ليس لقطة). لحذف حركات قديمة أو غير صحيحة استخدم "مسح جميع البيانات" من الإعدادات، أو راجع مصدر البيانات في Supabase مباشرة.`;
+          alert(movesMsg);
         } else {
           const file = fileInput.files[0];
-          const rows = await parseExcelFile(file);
+          let rows = await parseExcelFile(file);
+          const headerIndex = buildHeaderIndex(rows);
+          const autoCols = autoDetectValuationCols(headerIndex);
+          const cols = await showMappingReviewModal(type, headerIndex.headerList, autoCols, rows);
+          if (!cols) { alert("تم إلغاء رفع الملف."); return; }
+          const parsed = extractValuationRows(rows, cols);
+          demoWasCleared = evictDemoDataIfNeeded();
           const itemsMap = {};
+          const hadExistingItems = state.items.length > 0;
+          state.items.forEach(i => { itemsMap[i.key || `name:${normalizeMatchKey(i.name)}`] = { ...i }; });
+          const keysBeforeThisFile = new Set(Object.keys(itemsMap));
 
-          state.items.forEach(i => { itemsMap[cleanText(i.name)] = { ...i }; });
-
-          rows.forEach(r => {
-            const pName = cleanText(getVal(r, ['المنتج', 'Product', 'product', 'Item', 'اسم المنتج', 'Display Name']));
-            if (!pName) return;
-
-            if (!itemsMap[pName]) {
-              itemsMap[pName] = { name: pName, cat: "عام", cost: 0, price: 0, qtyInitial: 0, qtyFinal: 0, soldYr: 0 };
-            }
-
+          parsed.rowsOut.forEach(row => {
             if (type === 'invInitial') {
-              itemsMap[pName].qtyInitial = Number(getVal(r, ['الكمية', 'Quantity', 'Initial', 'رصيد اول', 'رصيد أول المدة'])) || 0;
+              const key = row.key;
+              if (!itemsMap[key]) itemsMap[key] = { key, name: row.displayName, cat: "عام", cost: 0, price: 0, qtyInitial: 0, qtyFinal: 0, soldYr: 0 };
+              if (row.displayName) itemsMap[key].name = row.displayName;
+              itemsMap[key].qtyInitial = row.qtyFinal !== null ? row.qtyFinal : (row.qtyInitial !== null ? row.qtyInitial : itemsMap[key].qtyInitial);
             } else if (type === 'invFinal') {
-              itemsMap[pName].qtyFinal = Number(getVal(r, ['الكمية', 'Quantity', 'Final', 'رصيد آخر', 'On Hand'])) || 0;
+              const key = row.key;
+              if (!itemsMap[key]) itemsMap[key] = { key, name: row.displayName, cat: "عام", cost: 0, price: 0, qtyInitial: 0, qtyFinal: 0, soldYr: 0 };
+              if (row.displayName) itemsMap[key].name = row.displayName;
+              itemsMap[key].qtyFinal = row.qtyFinal !== null ? row.qtyFinal : (row.qtyInitial !== null ? row.qtyInitial : itemsMap[key].qtyFinal);
             } else if (type === 'audit') {
-              itemsMap[pName].auditQty = Number(getVal(r, ['الجرد الفعلي', 'Counted', 'Audit Qty', 'الكمية الفعليه'])) || 0;
-              itemsMap[pName].auditDate = getVal(r, ['تاريخ الجرد', 'Date', 'Audit Date']) || new Date().toISOString().split('T')[0];
+              const key = row.key;
+              if (!itemsMap[key]) itemsMap[key] = { key, name: row.displayName, cat: "عام", cost: 0, price: 0, qtyInitial: 0, qtyFinal: 0, soldYr: 0 };
+              if (row.displayName) itemsMap[key].name = row.displayName;
+              if (row.auditQty !== null) itemsMap[key].auditQty = row.auditQty;
+              itemsMap[key].auditDate = row.auditDate || new Date().toISOString().split('T')[0];
             } else if (type === 'valuation') {
-              itemsMap[pName].cost = Number(getVal(r, ['التكلفة', 'Cost', 'Unit Cost', 'تكلفة الوحدة'])) || itemsMap[pName].cost;
-              itemsMap[pName].price = Number(getVal(r, ['السعر', 'Price', 'Sales Price', 'سعر البيع'])) || itemsMap[pName].price;
-              itemsMap[pName].cat = cleanText(getVal(r, ['الفئة', 'Category', 'Internal Category'])) || itemsMap[pName].cat;
-              itemsMap[pName].stockValue = Number(getVal(r, ['القيمة الإجمالية', 'Total Value', 'Value'])) || (itemsMap[pName].cost * itemsMap[pName].qtyFinal);
+              mergeValuationRowIntoItem(itemsMap, row);
             }
           });
-
           state.items = Object.values(itemsMap);
+
+          // Transparency check: if this file's rows were mostly matched against EXISTING
+          // items (by code/barcode/name), great -- normal update. But if most rows instead
+          // created BRAND NEW zero-value items, that's a strong signal this file's identity
+          // convention (e.g. name-only) doesn't match what an earlier upload used (e.g.
+          // barcode-based), so it silently duplicated instead of updating. Never hide this.
+          let newItemsWarning = '';
+          if (hadExistingItems && parsed.stats.mapped > 0 && type !== 'valuation') {
+            const newKeysCount = Object.keys(itemsMap).filter(k => !keysBeforeThisFile.has(k)).length;
+            const newRatio = newKeysCount / parsed.stats.mapped;
+            if (newRatio > 0.3) {
+              newItemsWarning = `\n\n⚠️ تنبيه مهم: ${newKeysCount} من ${parsed.stats.mapped} صف في هذا الملف لم يتطابقوا مع أي صنف موجود بالفعل، وتم إنشاؤهم كأصناف جديدة (بتكلفة/سعر صفر مؤقتاً). لو كنت تتوقع أن هذا الملف يُحدّث أصنافاً موجودة بالفعل، فهذا يعني على الأرجح أن طريقة تعريف الصنف هنا (اسم فقط، أو كود مختلف) لا تُطابق طريقة تعريفه في الملف الذي رفعته سابقاً — راجع الأصناف الجديدة في جدول المخزون وتأكد إن مش لازم تصححها يدوياً أو تعيد الرفع بنفس نوع كود التعريف.`;
+            }
+          }
           if (supabaseClient) {
             setUploadLoading(true, `⏳ جاري حفظ الأصناف بالسحابة...`);
-            await batchUpsert("inventory_items", state.items);
+            await batchUpsert("inventory_items", state.items.map(it => ({ ...it, id: (it.key || '').replace(/[^a-zA-Z0-9_]/g, '_') })));
           }
+          recomputeAndRenderAll();
+          let msg = (demoWasCleared ? `🧹 تم حذف بيانات العرض التجريبية تلقائياً لأن هذا أول رفع حقيقي.\n\n` : '') +
+            `✅ تمت معالجة الملف بنجاح.\nإجمالي الصفوف: ${parsed.stats.total}\nتم استيراد: ${parsed.stats.mapped} صف`;
+          if (parsed.stats.usedFallbackLabel > 0) msg += `\nℹ️ ${parsed.stats.usedFallbackLabel} صف كان بدون اسم صريح (خلايا مدموجة في التصدير) وتم استيرادها بكود صنف فريد بدلاً من تجاهلها.`;
+          if (parsed.stats.skippedEmpty > 0) msg += `\n⚠️ تم تجاهل ${parsed.stats.skippedEmpty} صف فارغ تماماً (بدون اسم أو كود).`;
+          msg += newItemsWarning;
+          alert(msg);
         }
-
-        updateDashboard();
-        alert("تم معالجة ورفع الملف بنجاح! ✅");
       } catch (err) {
+        console.error(err);
         alert("حدث خطأ أثناء رفع ومعالجة الملف: " + err.message);
       } finally {
         setUploadLoading(false);
@@ -1070,108 +1812,281 @@
       }
     }
 
-    // Event Listeners for Filters & Inputs
-    document.getElementById("targetMarginInput").addEventListener("input", (e) => {
-      state.targetMargin = (Number(e.target.value) || 0) / 100;
-      updateDashboard();
-    });
-    document.getElementById("priceClassFilter").addEventListener("change", (e) => { state.priceClass = e.target.value; updateDashboard(); });
-    document.getElementById("movementFilter").addEventListener("change", (e) => { state.movement = e.target.value; updateDashboard(); });
-    document.getElementById("categoryFilter").addEventListener("change", (e) => { state.category = e.target.value; updateDashboard(); });
-    document.getElementById("searchInput").addEventListener("input", (e) => { state.search = e.target.value; updateDashboard(); });
-    document.getElementById("movesSearchInput").addEventListener("input", (e) => { state.movesSearch = e.target.value; renderMovesTable(); });
-    document.getElementById("moveTypeFilter").addEventListener("change", (e) => { state.moveType = e.target.value; renderMovesTable(); });
+    /* ============================================================================
+       SECTION F — Event wiring (filters, sorting, modals, settings)
+       ============================================================================ */
+    document.getElementById("exportInventoryBtn").addEventListener("click", exportInventoryToExcel);
+    document.getElementById("exportCategorySummaryBtn").addEventListener("click", exportCategorySummaryToExcel);
+    document.getElementById("exportAuditBtn").addEventListener("click", exportAuditToExcel);
+    document.getElementById("exportMovesBtn").addEventListener("click", exportMovesToExcel);
 
-    // Sorting Table
+    document.getElementById("targetMarginInput").addEventListener("input", (e) => { state.targetMargin = (Number(e.target.value) || 0) / 100; recomputeAndRenderAll(); });
+    document.getElementById("priceClassFilter").addEventListener("change", (e) => { state.priceClass = e.target.value; inventoryRenderLimit = 300; refreshInventoryView(); });
+    document.getElementById("movementFilter").addEventListener("change", (e) => { state.movement = e.target.value; inventoryRenderLimit = 300; refreshInventoryView(); });
+    document.getElementById("categoryFilter").addEventListener("change", (e) => { state.category = e.target.value; inventoryRenderLimit = 300; refreshInventoryView(); });
+    document.getElementById("searchInput").addEventListener("input", debounce((e) => { state.search = e.target.value; inventoryRenderLimit = 300; refreshInventoryView(); }, 250));
+    document.getElementById("movesSearchInput").addEventListener("input", debounce((e) => { state.movesSearch = e.target.value; movesRenderLimit = 300; refreshMovesView(); }, 250));
+    document.getElementById("moveTypeFilter").addEventListener("change", (e) => { state.moveType = e.target.value; movesRenderLimit = 300; refreshMovesView(); });
+
     document.querySelectorAll("th[data-key]").forEach(th => {
       th.addEventListener("click", () => {
         const key = th.dataset.key;
-        if (state.sortKey === key) {
-          state.sortDir *= -1;
-        } else {
-          state.sortKey = key;
-          state.sortDir = -1;
-        }
-        updateDashboard();
+        if (state.sortKey === key) state.sortDir *= -1; else { state.sortKey = key; state.sortDir = -1; }
+        refreshInventoryView();
       });
     });
 
-    // Modal Logic & Locks
-    window.openSettingsModal = function() { document.getElementById("settingsModal").classList.add("active"); };
+    window.openSettingsModal = function() {
+      document.getElementById("ruleMainWarehouseKw").value = settings.mainWarehouseKw;
+      document.getElementById("ruleCustomerKw").value = settings.customerKw;
+      document.getElementById("ruleVendorKw").value = settings.vendorKw;
+      document.getElementById("ruleScrapKw").value = settings.scrapKw;
+      document.getElementById("uploadPasswordInput").value = settings.uploadPassword;
+      document.getElementById("adminPasswordInput").value = settings.adminPassword;
+      document.getElementById("ruleCMinusMax").value = settings.limitCMinus;
+      document.getElementById("ruleCMax").value = settings.limitCMid;
+      document.getElementById("ruleTesterInput").value = "";
+      document.getElementById("ruleTesterResult").innerHTML = "";
+      document.getElementById("categoryLevelModeSelect").value = settings.categoryLevelMode;
+      document.getElementById("categoryTesterInput").dispatchEvent(new Event("input"));
+      document.getElementById("settingsModal").classList.add("active");
+    };
     window.closeSettingsModal = function() { document.getElementById("settingsModal").classList.remove("active"); };
 
-    function requestPassword(targetSection) {
-      activeUnlockTarget = targetSection;
+    // Live "try it yourself" tester for the move-classification rules -- lets a
+    // non-technical user paste a location string from their own file and see
+    // instantly which bucket it falls into, using the CURRENTLY TYPED (not yet
+    // saved) keyword values so they can tune them interactively before saving.
+    document.getElementById("ruleTesterInput").addEventListener("input", (e) => {
+      const testKeywords = {
+        customer: splitKeywords(document.getElementById("ruleCustomerKw").value),
+        vendor: splitKeywords(document.getElementById("ruleVendorKw").value),
+        scrap: splitKeywords(document.getElementById("ruleScrapKw").value)
+      };
+      const role = classifyLocationRole(e.target.value, testKeywords);
+      const roleLabels = { customer: '✅ عميل حقيقي (سيُحتسب بيع فعلي إن كان "إلى موقع")', vendor: '✅ مورّد حقيقي (سيُحتسب شراء فعلي إن كان "من موقع")', scrap: '🗑️ هالك/تالف', other: '🔁 غير مطابق لأي قائمة → سيُعتبر تحويل مخزني داخلي' };
+      document.getElementById("ruleTesterResult").innerText = e.target.value.trim() ? roleLabels[role] : '';
+    });
+    ["ruleCustomerKw", "ruleVendorKw", "ruleScrapKw"].forEach(id => {
+      document.getElementById(id).addEventListener("input", () => document.getElementById("ruleTesterInput").dispatchEvent(new Event("input")));
+    });
+
+    // Live "try it yourself" tester for the category-path rule -- reflects the
+    // CURRENTLY SELECTED (not yet saved) mode so the user can compare all three
+    // options against a real category path from their own file before committing.
+    function refreshCategoryTester() {
+      const path = document.getElementById("categoryTesterInput").value;
+      const mode = document.getElementById("categoryLevelModeSelect").value;
+      const result = path.trim() ? deriveCategoryLabel(path, mode) : '';
+      document.getElementById("categoryTesterResult").innerText = result ? `الناتج: "${result}"` : '';
+    }
+    document.getElementById("categoryTesterInput").addEventListener("input", refreshCategoryTester);
+    document.getElementById("categoryLevelModeSelect").addEventListener("change", refreshCategoryTester);
+    document.getElementById("saveCategoryRuleBtn").addEventListener("click", () => {
+      settings.categoryLevelMode = document.getElementById("categoryLevelModeSelect").value || DEFAULTS.categoryLevelMode;
+      localStorage.setItem("category_level_mode", settings.categoryLevelMode);
+      recomputeAndRenderAll();
+      alert("✅ تم حفظ قاعدة التصنيف، وأُعيد تصنيف كل الأصناف المرفوعة مسبقاً فوراً بدون الحاجة لإعادة رفع أي ملف.");
+    });
+
+    document.getElementById("savePasswordsBtn").addEventListener("click", () => {
+      settings.uploadPassword = document.getElementById("uploadPasswordInput").value || DEFAULTS.uploadPassword;
+      settings.adminPassword = document.getElementById("adminPasswordInput").value || DEFAULTS.adminPassword;
+      localStorage.setItem("upload_password", settings.uploadPassword);
+      localStorage.setItem("admin_password", settings.adminPassword);
+      alert("✅ تم حفظ كلمات السر.");
+    });
+    document.getElementById("saveMoveRulesBtn").addEventListener("click", () => {
+      settings.mainWarehouseKw = document.getElementById("ruleMainWarehouseKw").value || DEFAULTS.mainWarehouseKw;
+      settings.customerKw = document.getElementById("ruleCustomerKw").value || DEFAULTS.customerKw;
+      settings.vendorKw = document.getElementById("ruleVendorKw").value || DEFAULTS.vendorKw;
+      settings.scrapKw = document.getElementById("ruleScrapKw").value || DEFAULTS.scrapKw;
+      localStorage.setItem("rule_main_wh", settings.mainWarehouseKw);
+      localStorage.setItem("rule_customer_kw", settings.customerKw);
+      localStorage.setItem("rule_vendor_kw", settings.vendorKw);
+      localStorage.setItem("rule_scrap_kw", settings.scrapKw);
+      recomputeAndRenderAll();
+      alert("✅ تم حفظ قواعد تصنيف الحركات وتحديث كل الحسابات.");
+    });
+
+    // ONE unlock gate for the entire protected cluster (credentials, price limits,
+    // cloud, danger zone) -- enter the admin password once per settings-modal
+    // session instead of once per section. Simpler, still gated by the same password.
+    function requestPassword() {
       document.getElementById("masterPasswordInput").value = "";
+      document.getElementById("masterLockError").classList.add("hidden");
       document.getElementById("masterLockModal").classList.add("active");
     }
     window.closeMasterLockModal = function() { document.getElementById("masterLockModal").classList.remove("active"); };
 
-    document.getElementById("unlockPriceLimitsBtn").addEventListener("click", () => requestPassword('price'));
-    document.getElementById("unlockCloudBtn").addEventListener("click", () => requestPassword('cloud'));
+    /* ============================================================================
+       SECTION G — Unmatched Products reconciliation (link or ignore, persisted)
+       ============================================================================ */
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+    let unmatchedProductsRenderLimit = 50;
+    function openUnmatchedProductsModal() {
+      unmatchedProductsRenderLimit = 50;
+      renderUnmatchedProductsList();
+      document.getElementById("unmatchedProductsModal").classList.add("active");
+    }
+    window.closeUnmatchedProductsModal = function() { document.getElementById("unmatchedProductsModal").classList.remove("active"); };
 
-    document.getElementById("confirmMasterPasswordBtn").addEventListener("click", () => {
-      const pass = document.getElementById("masterPasswordInput").value;
-      if (pass === MASTER_PASSWORD) {
-        closeMasterLockModal();
-        if (activeUnlockTarget === 'price') {
-          document.getElementById("protectedPriceSection").classList.remove("hidden");
-          document.getElementById("unlockPriceLimitsBtn").classList.add("hidden");
-        } else if (activeUnlockTarget === 'cloud') {
-          document.getElementById("protectedCloudSection").classList.remove("hidden");
-          document.getElementById("unlockCloudBtn").classList.add("hidden");
-        }
-      } else {
-        alert("كلمة السر غير صحيحة!");
+    function renderUnmatchedProductsList() {
+      const stats = lastUnmatchedStats;
+      const container = document.getElementById("unmatchedProductsListContainer");
+      const visible = stats.slice(0, unmatchedProductsRenderLimit);
+      container.innerHTML = visible.map(s => `
+        <div class="border border-slate-200 rounded-xl p-3 flex flex-wrap items-center gap-3" data-unmatched-key="${escapeHtml(s.key)}">
+          <div class="flex-1 min-w-[220px]">
+            <div class="text-xs font-bold text-slate-900">${escapeHtml(s.displayName)}</div>
+            <div class="text-[11px] text-slate-500">إجمالي الكمية المتحركة: <span class="num font-semibold">${s.totalQty.toLocaleString('en-US')}</span> — عدد الحركات: <span class="num">${s.moveCount.toLocaleString('en-US')}</span></div>
+          </div>
+          <div class="relative flex-1 min-w-[220px]">
+            <input type="text" class="unmatched-map-input w-full p-2 border border-slate-300 rounded-lg text-xs outline-none" placeholder="اكتب اسم الصنف الحقيقي للربط...">
+            <div class="unmatched-suggestions hidden absolute z-20 bg-white border border-slate-200 rounded-lg shadow-lg mt-1 w-full max-h-48 overflow-y-auto"></div>
+          </div>
+          <button class="unmatched-link-btn px-3 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg opacity-50 cursor-not-allowed" disabled>ربط</button>
+          <button class="unmatched-ignore-btn px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg whitespace-nowrap">تجاهل (مش صنف مخزون)</button>
+        </div>`).join('') || `<div class="p-6 text-center text-slate-400 text-xs">لا توجد أصناف غير مطابقة 🎉</div>`;
+
+      document.getElementById("unmatchedProductsCountLabel").innerText =
+        stats.length ? `يعرض ${visible.length.toLocaleString('en-US')} من إجمالي ${stats.length.toLocaleString('en-US')} صنف غير مطابق` : '';
+      const loadMoreEl = document.getElementById("unmatchedProductsLoadMoreRow");
+      loadMoreEl.innerHTML = stats.length > visible.length
+        ? `<button id="unmatchedProductsLoadMoreBtn" class="load-more-btn">عرض المزيد (+50) — المتبقي ${(stats.length - visible.length).toLocaleString('en-US')}</button>` : '';
+      const loadMoreBtn = document.getElementById("unmatchedProductsLoadMoreBtn");
+      if (loadMoreBtn) loadMoreBtn.addEventListener("click", () => { unmatchedProductsRenderLimit += 50; renderUnmatchedProductsList(); });
+    }
+
+    // Type-to-search suggestions (max 8, debounced) -- searches the currently loaded
+    // inventory items by name. Deliberately NOT a native <select> with tens of
+    // thousands of <option> tags, which would be unusably slow to render per row.
+    document.getElementById("unmatchedProductsListContainer").addEventListener("input", debounce((e) => {
+      if (!e.target.classList.contains("unmatched-map-input")) return;
+      const row = e.target.closest("[data-unmatched-key]");
+      const suggestionsEl = row.querySelector(".unmatched-suggestions");
+      const linkBtn = row.querySelector(".unmatched-link-btn");
+      linkBtn.disabled = true; linkBtn.classList.add("opacity-50", "cursor-not-allowed");
+      delete row.dataset.selectedItemKey;
+      const q = e.target.value.trim().toLowerCase();
+      if (!q) { suggestionsEl.classList.add("hidden"); suggestionsEl.innerHTML = ""; return; }
+      const matches = cachedProcessed.filter(i => i.displayName.toLowerCase().includes(q)).slice(0, 8);
+      if (!matches.length) { suggestionsEl.innerHTML = `<div class="px-3 py-2 text-xs text-slate-400">لا توجد نتائج مطابقة</div>`; suggestionsEl.classList.remove("hidden"); return; }
+      suggestionsEl.innerHTML = matches.map(m => `<div class="unmatched-suggestion-item px-3 py-2 text-xs hover:bg-blue-50 cursor-pointer" data-item-key="${escapeHtml(m.key)}">${escapeHtml(m.displayName)}</div>`).join('');
+      suggestionsEl.classList.remove("hidden");
+    }, 200));
+
+    document.getElementById("unmatchedProductsListContainer").addEventListener("click", (e) => {
+      const suggestion = e.target.closest(".unmatched-suggestion-item");
+      if (suggestion) {
+        const row = suggestion.closest("[data-unmatched-key]");
+        row.dataset.selectedItemKey = suggestion.dataset.itemKey;
+        row.querySelector(".unmatched-map-input").value = suggestion.textContent;
+        row.querySelector(".unmatched-suggestions").classList.add("hidden");
+        const linkBtn = row.querySelector(".unmatched-link-btn");
+        linkBtn.disabled = false; linkBtn.classList.remove("opacity-50", "cursor-not-allowed");
+        return;
+      }
+      const linkBtn = e.target.closest(".unmatched-link-btn");
+      if (linkBtn && !linkBtn.disabled) {
+        const row = linkBtn.closest("[data-unmatched-key]");
+        const itemKey = row.dataset.selectedItemKey;
+        if (!itemKey) return;
+        state.productAliases[row.dataset.unmatchedKey] = { type: "mapped", itemKey };
+        saveProductAliases();
+        recomputeAndRenderAll();
+        renderUnmatchedProductsList();
+        return;
+      }
+      const ignoreBtn = e.target.closest(".unmatched-ignore-btn");
+      if (ignoreBtn) {
+        const row = ignoreBtn.closest("[data-unmatched-key]");
+        state.productAliases[row.dataset.unmatchedKey] = { type: "ignored" };
+        saveProductAliases();
+        recomputeAndRenderAll();
+        renderUnmatchedProductsList();
+      }
+    });
+    document.addEventListener("click", (e) => {
+      if (!e.target.classList.contains("unmatched-map-input")) {
+        document.querySelectorAll(".unmatched-suggestions").forEach(el => el.classList.add("hidden"));
       }
     });
 
+    document.getElementById("openUnmatchedProductsBtn").addEventListener("click", openUnmatchedProductsModal);
+    document.getElementById("exportUnmatchedProductsBtn").addEventListener("click", () => {
+      runExportWithLoadingState("⏳ جاري تجهيز ملف Excel...", () => {
+        const rows = lastUnmatchedStats.map(s => ({
+          "اسم الصنف (من ملف الحركات)": s.displayName, "إجمالي الكمية المتحركة": s.totalQty, "عدد الحركات": s.moveCount
+        }));
+        exportRowsToExcel(`أصناف_غير_مطابقة_${new Date().toISOString().slice(0,10)}.xlsx`, rows);
+      });
+    });
+    document.getElementById("unlockAllBtn").addEventListener("click", () => requestPassword());
+    document.getElementById("confirmMasterPasswordBtn").addEventListener("click", () => {
+      const pass = document.getElementById("masterPasswordInput").value;
+      if (pass === settings.adminPassword) {
+        closeMasterLockModal();
+        document.getElementById("protectedSettingsGroup").classList.remove("hidden");
+        document.getElementById("unlockAllBtn").classList.add("hidden");
+      } else {
+        document.getElementById("masterLockError").classList.remove("hidden");
+      }
+    });
+    document.getElementById("resetAllDataBtn").addEventListener("click", () => {
+      if (!confirm("هل أنت متأكد؟ سيتم حذف جميع الأصناف وحركات المخزون المحمّلة في هذه الجلسة نهائياً ولا يمكن التراجع عن هذا الإجراء.")) return;
+      state.items = [];
+      state.moves = [];
+      state.isDemoData = false; // explicit empty state, not the demo -- don't re-seed
+      recomputeAndRenderAll();
+      closeSettingsModal();
+      alert("✅ تم مسح جميع البيانات. يمكنك الآن رفع ملفاتك من جديد.");
+    });
+
     document.getElementById("savePriceLimitsBtn").addEventListener("click", () => {
-      priceConfig.limitCMinus = Number(document.getElementById("ruleCMinusMax").value) || 300;
-      priceConfig.limitCMid = Number(document.getElementById("ruleCMax").value) || 550;
-      localStorage.setItem("limit_c_minus", priceConfig.limitCMinus);
-      localStorage.setItem("limit_c_mid", priceConfig.limitCMid);
-      updateDashboard();
-      alert("تم حفظ وتطبيق حدود الفئات السعرية الجديدة بنجاح! ✅");
+      settings.limitCMinus = Number(document.getElementById("ruleCMinusMax").value) || DEFAULTS.limitCMinus;
+      settings.limitCMid = Number(document.getElementById("ruleCMax").value) || DEFAULTS.limitCMid;
+      localStorage.setItem("limit_c_minus", settings.limitCMinus);
+      localStorage.setItem("limit_c_mid", settings.limitCMid);
+      recomputeAndRenderAll();
+      alert("✅ تم حفظ وتطبيق حدود الفئات السعرية الجديدة.");
     });
-
     document.getElementById("connectBtn").addEventListener("click", async () => {
+      const url = document.getElementById("supabaseUrlInput").value.trim();
+      const key = document.getElementById("supabaseKeyInput").value.trim();
+      localStorage.setItem("supabase_url", url);
+      localStorage.setItem("supabase_key", key);
       const connected = await initSupabase();
-      if (connected) alert("تم الحفظ والاتصال بنجاح!");
+      if (connected) alert("✅ تم الحفظ والاتصال بنجاح!");
+      else alert("⚠️ لم يتم الاتصال — تحقق من الرابط والمفتاح.");
     });
 
-    // Upload Button Trigger Bindings
     function bindUploadTrigger(btnId, fileInputId, uploadType) {
       document.getElementById(btnId).addEventListener("click", () => {
         pendingUploadType = { fileInputId, uploadType };
         document.getElementById("modalPasswordInput").value = "";
+        document.getElementById("passwordModalError").classList.add("hidden");
         document.getElementById("passwordModal").classList.add("active");
       });
     }
-
     window.closePasswordModal = function() { document.getElementById("passwordModal").classList.remove("active"); };
-
     document.getElementById("confirmPasswordBtn").addEventListener("click", () => {
       const pass = document.getElementById("modalPasswordInput").value;
-      const uploadPass = document.getElementById("uploadPasswordInput").value || "123456";
-      const adminPass = document.getElementById("adminPasswordInput").value || MASTER_PASSWORD;
-
-      if (pass === uploadPass || pass === adminPass || pass === MASTER_PASSWORD) {
+      if (pass === settings.uploadPassword || pass === settings.adminPassword) {
         closePasswordModal();
-        if (pendingUploadType) {
-          document.getElementById(pendingUploadType.fileInputId).click();
-        }
+        if (pendingUploadType) document.getElementById(pendingUploadType.fileInputId).click();
       } else {
-        alert("كلمة السر غير صحيحة!");
+        document.getElementById("passwordModalError").innerText = "كلمة السر غير صحيحة!";
+        document.getElementById("passwordModalError").classList.remove("hidden");
       }
     });
-
     bindUploadTrigger("uploadInvInitialBtn", "fileInputInvInitial", "invInitial");
     bindUploadTrigger("uploadInvFinalBtn", "fileInputInvFinal", "invFinal");
     bindUploadTrigger("uploadAuditBtn", "fileInputAudit", "audit");
     bindUploadTrigger("uploadValuationBtn", "fileInputValuation", "valuation");
     bindUploadTrigger("uploadMovesBtn", "fileInputMoves", "moves");
-
     document.getElementById("fileInputInvInitial").addEventListener("change", () => handleFileUpload("fileInputInvInitial", "invInitial"));
     document.getElementById("fileInputInvFinal").addEventListener("change", () => handleFileUpload("fileInputInvFinal", "invFinal"));
     document.getElementById("fileInputAudit").addEventListener("change", () => handleFileUpload("fileInputAudit", "audit"));
@@ -1179,10 +2094,8 @@
     document.getElementById("fileInputMoves").addEventListener("change", () => handleFileUpload("fileInputMoves", "moves"));
 
     // Initial Startup
-    syncPriceRuleInputs();
     initSupabase();
-    updateDashboard();
-
+    recomputeAndRenderAll();
   })();
   </script>
 </body>
