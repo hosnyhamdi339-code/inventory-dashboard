@@ -425,7 +425,7 @@
         </div>
         <div class="form-group" style="margin-bottom:10px;">
           <label>Anon API Key</label>
-          <input type="password" id="supaKey" placeholder="eyJhbGciOiJIUzI1Ni...">
+          <input type="password" id="supaKey" value="sb_publishable_B4eYWhNEbMCF7NjKjS1z2A_0xUdFOUZ">
         </div>
         <div class="form-group" style="margin-bottom:12px;">
           <label>كلمة سر الأدمن للرفع</label>
@@ -689,16 +689,19 @@
   });
 
   window.addEventListener("DOMContentLoaded", () => {
-    const savedUrl = localStorage.getItem("supa_url") || "https://vpltgqemhjmelptnnabj.supabase.co";
-    const savedKey = localStorage.getItem("supa_key");
+    const savedUrl = document.getElementById("supaUrl").value.trim() || "https://vpltgqemhjmelptnnabj.supabase.co";
+    const savedKey = document.getElementById("supaKey").value.trim() || "sb_publishable_B4eYWhNEbMCF7NjKjS1z2A_0xUdFOUZ";
     const savedPass = localStorage.getItem("admin_password") || "22181";
-    document.getElementById("supaUrl").value = savedUrl;
-    if(savedKey) document.getElementById("supaKey").value = savedKey;
+    
     document.getElementById("adminPasswordInput").value = savedPass;
     if(savedUrl && savedKey) {
-      supabaseClient = supabase.createClient(savedUrl, savedKey);
-      fetchCloudData();
-      subscribeToRealtime();
+      try {
+        supabaseClient = supabase.createClient(savedUrl, savedKey);
+        fetchCloudData();
+        subscribeToRealtime();
+      } catch(e) {
+        updateSyncStatus("error", "خطأ في تهيئة الاتصال بالسحابة");
+      }
     }
   });
 
