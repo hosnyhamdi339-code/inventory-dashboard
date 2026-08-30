@@ -1,0 +1,1085 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>نظام تحليل المخزون والحركات الزمني - Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Inter:wght@400;600;700&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  :root {
+    --bg-page: #f8fafc;
+    --bg-surface: #ffffff;
+    --bg-subtle: #f1f5f9;
+    --border: #e2e8f0;
+    --text-main: #0f172a;
+    --text-muted: #64748b;
+    --primary: #2563eb;
+    --primary-light: #eff6ff;
+    --success: #16a34a;
+    --success-light: #f0fdf4;
+    --warning: #d97706;
+    --warning-light: #fffbeb;
+    --danger: #dc2626;
+    --danger-light: #fef2f2;
+    --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px;
+    background: var(--bg-page); color: var(--text-main);
+    font-family: "IBM Plex Sans Arabic", system-ui, sans-serif;
+    line-height: 1.5;
+  }
+  .num { font-family: "Inter", sans-serif; direction: ltr; display: inline-block; }
+
+  .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 16px; }
+  .header h1 { margin: 0; font-size: 24px; font-weight: 700; color: var(--text-main); }
+  .header p { margin: 4px 0 0; color: var(--text-muted); font-size: 14px; }
+
+  .actions-group { display: flex; gap: 12px; align-items: center; }
+  .btn {
+    background: var(--primary); color: #fff; border: none; padding: 9px 16px;
+    border-radius: 8px; font-weight: 600; font-size: 13.5px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px; transition: 0.2s; width: 100%;
+  }
+  .btn:hover { opacity: 0.9; }
+  .btn.secondary { background: var(--bg-surface); color: var(--text-main); border: 1px solid var(--border); }
+  .btn.secondary:hover { background: var(--bg-subtle); }
+  .btn.settings-btn { background: #0f172a; color: #fff; width: auto; padding: 10px 20px; font-size: 14px; }
+  .btn.lock-btn { background: #475569; color: #fff; }
+  #fileInputInvInitial, #fileInputInvFinal, #fileInputAudit, #fileInputMoves { display: none; }
+
+  .sync-indicator {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 13px;
+    padding: 8px 14px; border-radius: 20px; background: var(--bg-surface); color: var(--text-muted);
+    border: 1px solid var(--border); box-shadow: var(--shadow);
+  }
+  .sync-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warning); }
+  .sync-indicator.connected .sync-dot { background: var(--success); }
+  .sync-indicator.error .sync-dot { background: var(--danger); }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 12px; border-bottom: 2px solid var(--border); margin-bottom: 24px; }
+  .tab-btn {
+    padding: 10px 20px; font-size: 15px; font-weight: 600; color: var(--text-muted);
+    background: none; border: none; border-bottom: 3px solid transparent; cursor: pointer; transition: 0.2s;
+  }
+  .tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+  /* KPIs */
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .kpi-card {
+    background: var(--bg-surface); border: 1px solid var(--border);
+    padding: 18px; border-radius: 12px; box-shadow: var(--shadow);
+  }
+  .kpi-title { font-size: 13px; color: var(--text-muted); margin-bottom: 8px; font-weight: 500; }
+  .kpi-value { font-size: 24px; font-weight: 700; color: var(--text-main); }
+  .kpi-sub { font-size: 12px; margin-top: 6px; }
+
+  /* Charts Section */
+  .charts-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+  @media(max-width: 1024px){ .charts-grid { grid-template-columns: 1fr; } }
+  .chart-card {
+    background: var(--bg-surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px; box-shadow: var(--shadow); display: flex; flex-direction: column;
+  }
+  .chart-card h3 { margin: 0 0 16px; font-size: 15px; font-weight: 700; color: var(--text-main); }
+  .chart-container { position: relative; flex: 1; min-height: 220px; }
+
+  /* Section Title */
+  .section-title { font-size: 16px; font-weight: 700; margin: 24px 0 12px; color: var(--text-main); display: flex; align-items: center; gap: 8px; }
+
+  /* Controls Panel */
+  .panel {
+    background: var(--bg-surface); border: 1px solid var(--border);
+    padding: 20px; border-radius: 12px; box-shadow: var(--shadow); margin-bottom: 24px;
+  }
+  .controls-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; align-items: flex-end; }
+  .form-group { display: flex; flex-direction: column; gap: 6px; }
+  .form-group label { font-size: 13px; font-weight: 600; color: var(--text-muted); }
+  select, input[type="text"], input[type="number"], input[type="password"], input[type="date"] {
+    padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px;
+    font-family: inherit; font-size: 14px; background: var(--bg-surface); color: var(--text-main);
+  }
+
+  /* Tables */
+  .table-container { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-surface); margin-bottom: 24px; box-shadow: var(--shadow); }
+  table { width: 100%; border-collapse: collapse; text-align: right; font-size: 13.5px; }
+  th, td { padding: 12px 14px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { background: var(--bg-subtle); color: var(--text-muted); font-weight: 600; cursor: pointer; user-select: none; }
+  th:hover { color: var(--text-main); }
+  tr:hover { background: var(--bg-subtle); }
+
+  /* Badges */
+  .badge { padding: 4px 8px; border-radius: 6px; font-size: 11.5px; font-weight: 600; display: inline-block; }
+  .badge.fast { background: var(--success-light); color: var(--success); }
+  .badge.normal { background: var(--primary-light); color: var(--primary); }
+  .badge.slow { background: var(--warning-light); color: var(--warning); }
+  .badge.dead { background: var(--danger-light); color: var(--danger); }
+  .badge.out { background: #e0e7ff; color: #4338ca; }
+  .badge.in { background: var(--success-light); color: var(--success); }
+  .badge.price-class { background: #f3e8ff; color: #6b21a8; border: 1px solid #d8b4fe; }
+  .badge.match { background: var(--success-light); color: var(--success); }
+  .badge.diff { background: var(--danger-light); color: var(--danger); }
+
+  /* Modals */
+  .modal-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(15, 23, 42, 0.6); display: none; align-items: center; justify-content: center; z-index: 1000;
+  }
+  .modal-overlay.active { display: flex; }
+  .modal {
+    background: #fff; border-radius: 12px; padding: 24px; width: 100%; max-width: 580px;
+    box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1); max-height: 90vh; overflow-y: auto;
+  }
+  .modal h3 { margin: 0 0 8px; font-size: 18px; }
+  .modal p { color: var(--text-muted); font-size: 13.5px; margin-bottom: 16px; }
+  .modal-section { border-top: 1px solid var(--border); padding-top: 16px; margin-top: 16px; }
+  .modal-section-title { font-size: 14px; font-weight: 700; margin-bottom: 12px; color: var(--text-main); }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+  .hidden { display: none !important; }
+
+  .rule-edit-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    background: var(--bg-subtle);
+    padding: 10px;
+    border-radius: 8px;
+  }
+  .rule-edit-row label { font-weight: 600; min-width: 55px; }
+  .rule-edit-row input { width: 100px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>نظام تحليل المخزون والحركات الزمني (سحابي)</h1>
+    <p>تحليل دقيق للأرصدة، الجرد الفعلي، والدوران مع تنظيف البيانات التلقائي</p>
+  </div>
+  <div class="actions-group">
+    <div class="sync-indicator" id="syncStatus">
+      <span class="sync-dot"></span>
+      <span id="syncText">بانتظار ضبط الاتصال...</span>
+    </div>
+    <button class="btn settings-btn" onclick="openSettingsModal()">الإعدادات والعمليات ⚙️</button>
+  </div>
+</div>
+
+<div class="tabs">
+  <button class="tab-btn active" data-tab="tab-inventory">التحليل الرئيسي للمخزون والتسعير</button>
+  <button class="tab-btn" data-tab="tab-audit">مطابقة الأرصدة والجرد الفعلي 🔍</button>
+  <button class="tab-btn" data-tab="tab-moves">سجل حركة المخزون الزمني (Stock Moves)</button>
+</div>
+
+<!-- TAB 1: INVENTORY ANALYSIS -->
+<div id="tab-inventory" class="tab-content active">
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="kpi-title">إجمالي قيمة المخزون (التكلفة)</div>
+      <div class="kpi-value num" id="kpiTotalValue">0</div>
+      <div class="kpi-sub" style="color: var(--text-muted);">رأس المال المستثمر بالمخزن</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-title">إجمالي الكميات المباعة (من شيت الحركة)</div>
+      <div class="kpi-value num" id="kpiTotalSoldQty">0</div>
+      <div class="kpi-sub" style="color: var(--primary);" id="kpiMovesCount">من واقع 0 حركة مبيعات</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-title">متوسط معدل دوران المخزون (فعلي)</div>
+      <div class="kpi-value num" id="kpiAvgTurnover">0.0x</div>
+      <div class="kpi-sub" style="color: var(--success);">محسوب بناءً على المبيعات الحقيقية</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-title">قيمة البضاعة الراكدة (Dead Stock)</div>
+      <div class="kpi-value num" id="kpiDeadStockVal" style="color: var(--danger);">0</div>
+      <div class="kpi-sub" style="color: var(--danger);" id="kpiDeadStockCount">0 أصناف</div>
+    </div>
+  </div>
+
+  <!-- CHARTS SECTION -->
+  <div class="charts-grid">
+    <div class="chart-card">
+      <h3>توزيع حالة حركة المخزون</h3>
+      <div class="chart-container">
+        <canvas id="doughnutChart"></canvas>
+      </div>
+    </div>
+    <div class="chart-card">
+      <h3>مقارنة الفئات السعرية (C- | C | C+) 🏷️</h3>
+      <div class="chart-container">
+        <canvas id="priceDoughnutChart"></canvas>
+      </div>
+    </div>
+    <div class="chart-card">
+      <h3>أعلى الأصناف مبيعاً (من واقع حركة المخزون)</h3>
+      <div class="chart-container">
+        <canvas id="barChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- SUMMARY TABLE AFTER CHARTS -->
+  <div class="section-title">📊 ملخص الأداء المالي والحركي حسب الفئة والتصنيف السعري</div>
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>الفئة (التصنيف)</th>
+          <th class="num">عدد الأصناف</th>
+          <th class="num">إجمالي قيمة المخزون</th>
+          <th class="num">إجمالي المبيعات الفعلية</th>
+          <th class="num">متوسط معدل الدوران</th>
+        </tr>
+      </thead>
+      <tbody id="summaryTableBody"></tbody>
+    </table>
+  </div>
+
+  <!-- CONTROLS & DETAILS TABLE -->
+  <div class="section-title">🔍 تفاصيل الأصناف والتصفيات</div>
+  <div class="panel">
+    <div class="controls-grid">
+      <div class="form-group">
+        <label>الهامش المستهدف (%)</label>
+        <input type="number" id="targetMarginInput" value="20" min="0" max="80">
+      </div>
+      <div class="form-group">
+        <label>التصنيف السعري</label>
+        <select id="priceClassFilter">
+          <option value="">جميع الفئات السعرية</option>
+          <option value="C-">فئة C-</option>
+          <option value="C">فئة C</option>
+          <option value="C+">فئة C+</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>حالة دوران المنتج</label>
+        <select id="movementFilter">
+          <option value="">جميع الحالات</option>
+          <option value="سريع الدوران">سريع الدوران (Fast)</option>
+          <option value="دوران طبيعي">دوران طبيعي (Normal)</option>
+          <option value="بطيء الدوران">بطيء الدوران (Slow)</option>
+          <option value="راكد">راكد (Dead Stock)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>الفئة</label>
+        <select id="categoryFilter"><option value="">كل الفئات</option></select>
+      </div>
+      <div class="form-group">
+        <label>بحث بالاسم أو الكود</label>
+        <input type="text" id="searchInput" placeholder="ابحث عن صنف...">
+      </div>
+    </div>
+  </div>
+
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th data-key="displayName">المنتج / SKU</th>
+          <th data-key="category">الفئة</th>
+          <th data-key="priceClass">الفئة السعرية</th>
+          <th data-key="qtyOnHand" class="num">الكمية بالمخزن</th>
+          <th data-key="actualSoldQty" class="num">المبيعات الفعلية</th>
+          <th data-key="unitCost" class="num">تكلفة الوحدة</th>
+          <th data-key="salesPrice" class="num">سعر البيع الحالي</th>
+          <th data-key="turnoverRate" class="num">معدل الدوران الفعلي</th>
+          <th data-key="daysOfInventory" class="num">أيام التغطية</th>
+          <th data-key="movementStatus">تصنيف الحركة</th>
+          <th data-key="maxDiscountPct" class="num">أقصى خصم مسموح</th>
+          <th data-key="floorPrice" class="num">أدنى سعر بيع</th>
+          <th data-key="stockValue" class="num">إجمالي التكلفة</th>
+        </tr>
+      </thead>
+      <tbody id="inventoryTableBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- TAB 2: AUDIT & INVENTORY CHECK -->
+<div id="tab-audit" class="tab-content">
+  <div class="panel">
+    <div style="font-weight: 700; margin-bottom: 8px;">📋 مطابقة الأرصدة (رصيد أول + الحركات - رصيد آخر vs الجرد الفعلي)</div>
+    <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+      يتم تنظيف البيانات تلقائياً، إزالة المسافات الزائدة من الأسماء، ومعالجة السوالب عبر المعادلة المحاسبية لنظام دقيق بنسبة 95%+.
+    </p>
+  </div>
+
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>اسم المنتج</th>
+          <th class="num">رصيد أول المدة</th>
+          <th class="num">إجمالي الإضافات (IN)</th>
+          <th class="num">إجمالي الصرف (OUT)</th>
+          <th class="num">رصيد آخر المدة (محسوب)</th>
+          <th class="num">الجرد الفعلي</th>
+          <th>تاريخ الجرد</th>
+          <th class="num">الفروقات (العجز/الزيادة)</th>
+          <th>حالة المطابقة</th>
+        </tr>
+      </thead>
+      <tbody id="auditTableBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- TAB 3: STOCK MOVES -->
+<div id="tab-moves" class="tab-content">
+  <div class="panel">
+    <div class="panel-title" style="font-weight: 700; margin-bottom: 12px;">فلترة سجل حركات المخزون الزمني</div>
+    <div class="controls-grid">
+      <div class="form-group">
+        <label>بحث بالمنتج / Reference</label>
+        <input type="text" id="movesSearchInput" placeholder="بحث في الحركات...">
+      </div>
+      <div class="form-group">
+        <label>نوع الحركة</label>
+        <select id="moveTypeFilter">
+          <option value="">جميع الحركات</option>
+          <option value="OUT">صرف / مبيعات (Customer Out)</option>
+          <option value="IN">إضافة / توريد (Vendor In)</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th data-mkey="date">التاريخ والوقت</th>
+          <th data-mkey="reference">المرجع (Reference)</th>
+          <th data-mkey="product">اسم المنتج (منظف)</th>
+          <th data-mkey="from_loc">من (From)</th>
+          <th data-mkey="to_loc">إلى (To)</th>
+          <th data-mkey="qty" class="num">الكمية</th>
+          <th data-mkey="uom">وحدة القياس</th>
+          <th>نوع الحركة</th>
+        </tr>
+      </thead>
+      <tbody id="movesTableBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Settings & Actions Modal -->
+<div class="modal-overlay" id="settingsModal">
+  <div class="modal">
+    <h3>إعدادات النظام والعمليات</h3>
+    <p>إدارة الملفات، التصدير، وضبط قواعد التصنيف السعري والربط السحابي:</p>
+
+    <!-- Price Classification Settings -->
+    <div class="modal-section">
+      <div class="modal-section-title">🏷️ ضبط قواعد حدود الفئات السعرية</div>
+      <button class="btn lock-btn" id="unlockPriceLimitsBtn">🔒 تعديل حدود الفئات السعرية (بكلمة سر رفع الشيتات)</button>
+      
+      <div id="protectedPriceSection" class="hidden" style="margin-top:12px;">
+        <div class="rule-edit-row">
+          <label style="color: #6b21a8;">• C- :</label>
+          <span>من 0 إلى</span>
+          <input type="number" id="ruleCMinusMax" value="300">
+          <span>ج.م</span>
+        </div>
+
+        <div class="rule-edit-row">
+          <label style="color: #2563eb;">• C :</label>
+          <span>من</span>
+          <span id="ruleCMinStart" style="font-weight: bold; width: 45px; text-align: center;">301</span>
+          <span>إلى</span>
+          <input type="number" id="ruleCMax" value="550">
+          <span>ج.م</span>
+        </div>
+
+        <div class="rule-edit-row">
+          <label style="color: #16a34a;">• C+ :</label>
+          <span>أكبر من</span>
+          <span id="ruleCPlusStart" style="font-weight: bold; width: 45px; text-align: center;">551</span>
+          <span>ج.م إلى أعلى سعر</span>
+        </div>
+
+        <button class="btn secondary" id="savePriceLimitsBtn" style="border-color: var(--primary); color: var(--primary); margin-top: 8px;">حفظ وتطبيق القواعد</button>
+      </div>
+    </div>
+
+    <!-- Protected Cloud Settings Toggle -->
+    <div class="modal-section">
+      <div class="modal-section-title">🔌 إعدادات الربط السحابي (Supabase)</div>
+      <button class="btn lock-btn" id="unlockCloudBtn">🔒 فتح إعدادات الربط والرياسة (تطلب كلمة السر 22181)</button>
+      
+      <div id="protectedCloudSection" class="hidden" style="margin-top: 14px;">
+        <div class="form-group" style="margin-bottom:10px;">
+          <label>Project URL</label>
+          <input type="text" id="supaUrl" value="https://vpltgqemhjmelptnnabj.supabase.co" placeholder="https://xxxx.supabase.co">
+        </div>
+        <div class="form-group" style="margin-bottom:10px;">
+          <label>Anon API Key</label>
+          <input type="password" id="supaKey" placeholder="eyJhbGciOiJIUzI1Ni...">
+        </div>
+        <div class="form-group" style="margin-bottom:12px;">
+          <label>كلمة سر الأدمن للرفع</label>
+          <input type="password" id="adminPasswordInput" value="admin123">
+        </div>
+        <button class="btn" id="connectBtn">حفظ وتوصيل القاعدة السحابية</button>
+      </div>
+    </div>
+
+    <!-- Data Actions (Updated Layout) -->
+    <div class="modal-section">
+      <div class="modal-section-title">📂 إدارة شيتات البيانات والتصدير</div>
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <button class="btn secondary" id="uploadInvInitialBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت رصيد أول المدة</button>
+        <button class="btn secondary" id="uploadInvFinalBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت رصيد آخر المدة</button>
+        <button class="btn secondary" id="uploadAuditBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت آخر جرد مخزون</button>
+        <button class="btn secondary" id="uploadMovesBtn" style="border-color: var(--primary); color: var(--primary);">رفع شيت الحركة</button>
+        <button class="btn secondary" id="exportBtn">تصدير قائمة العروض والخصومات (Excel)</button>
+      </div>
+      <input type="file" id="fileInputInvInitial" accept=".xlsx, .xls, .csv">
+      <input type="file" id="fileInputInvFinal" accept=".xlsx, .xls, .csv">
+      <input type="file" id="fileInputAudit" accept=".xlsx, .xls, .csv">
+      <input type="file" id="fileInputMoves" accept=".xlsx, .xls, .csv" multiple>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn secondary" onclick="closeSettingsModal()" style="width: auto;">إغلاق النافذة</button>
+    </div>
+  </div>
+</div>
+
+<!-- Master Lock Modal -->
+<div class="modal-overlay" id="masterLockModal">
+  <div class="modal">
+    <h3>إدخال كلمة السر الرئيسية</h3>
+    <p>يرجى إدخال كلمة السر الخاصة بالنظام للوصول إلى إعدادات الربط السحابي:</p>
+    <div class="form-group">
+      <input type="password" id="masterPasswordInput" placeholder="أدخل كلمة السر الرئيسية...">
+    </div>
+    <div class="modal-actions">
+      <button class="btn secondary" onclick="closeMasterLockModal()" style="width: auto;">إلغاء</button>
+      <button class="btn" id="confirmMasterPasswordBtn" style="width: auto;">تأكيد الفتح</button>
+    </div>
+  </div>
+</div>
+
+<!-- Password Modal -->
+<div class="modal-overlay" id="passwordModal">
+  <div class="modal">
+    <h3 id="passwordModalTitle">صلاحيات الأدمن مطلوبة</h3>
+    <p id="passwordModalSub">يرجى إدخال كلمة سر الأدمن الخاصة بالرفع:</p>
+    <div class="form-group">
+      <input type="password" id="modalPasswordInput" placeholder="أدخل كلمة السر...">
+    </div>
+    <div class="modal-actions">
+      <button class="btn secondary" onclick="closePasswordModal()" style="width: auto;">إلغاء</button>
+      <button class="btn" id="confirmPasswordBtn" style="width: auto;">تأكيد</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  let supabaseClient = null;
+  let pendingUploadType = null;
+  let doughnutChartInstance = null;
+  let priceDoughnutChartInstance = null;
+  let barChartInstance = null;
+
+  const MASTER_PASSWORD = "22181";
+
+  let priceConfig = {
+    limitCMinus: Number(localStorage.getItem("limit_c_minus")) || 300,
+    limitCMid: Number(localStorage.getItem("limit_c_mid")) || 550
+  };
+
+  let state = {
+    items: [],
+    moves: [],
+    targetMargin: 0.20,
+    sortKey: 'turnoverRate',
+    sortDir: -1,
+    category: '',
+    movement: '',
+    priceClass: '',
+    search: '',
+    movesSearch: '',
+    moveType: ''
+  };
+
+  document.querySelectorAll(".tab-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
+      btn.classList.add("active");
+      document.getElementById(btn.dataset.tab).classList.add("active");
+    });
+  });
+
+  function cleanText(str) {
+    if (!str) return "";
+    return String(str).trim().replace(/\s+/g, ' ');
+  }
+
+  function computeSalesAndStockFromMoves(moves) {
+    const summary = {};
+    moves.forEach(m => {
+      const pName = cleanText(m.product);
+      if(!pName) return;
+
+      if (!summary[pName]) {
+        summary[pName] = { totalIn: 0, totalOut: 0 };
+      }
+
+      const isCustomerOut = (m.to_loc && (m.to_loc.includes("Virtual") || m.to_loc.includes("Customer") || m.to_loc.includes("عملاء")));
+      const isVendorIn = (m.from_loc && (m.from_loc.includes("Virtual") || m.from_loc.includes("Vendor") || m.from_loc.includes("موردين")));
+      const qty = Math.abs(Number(m.qty) || 0);
+
+      if (isCustomerOut) {
+        summary[pName].totalOut += qty;
+      } else if (isVendorIn) {
+        summary[pName].totalIn += qty;
+      }
+    });
+    return summary;
+  }
+
+  function getPriceClass(price) {
+    if (price <= priceConfig.limitCMinus) return "C-";
+    if (price <= priceConfig.limitCMid) return "C";
+    return "C+";
+  }
+
+  function syncPriceRuleInputs() {
+    const cMin = Number(document.getElementById("ruleCMinusMax").value) || priceConfig.limitCMinus;
+    const cMid = Number(document.getElementById("ruleCMax").value) || priceConfig.limitCMid;
+
+    document.getElementById("ruleCMinStart").textContent = cMin + 1;
+    document.getElementById("ruleCPlusStart").textContent = cMid + 1;
+  }
+
+  document.getElementById("ruleCMinusMax").addEventListener("input", syncPriceRuleInputs);
+  document.getElementById("ruleCMax").addEventListener("input", syncPriceRuleInputs);
+
+  function processItem(item, targetMargin, moveSummary) {
+    const displayName = cleanText(item.name);
+    const category = cleanText(item.cat);
+    const unitCost = Number(item.cost) || 0;
+    const salesPrice = Number(item.price) || 0;
+    
+    const qtyInitial = Number(item.qtyInitial) || 0;
+    const movesData = moveSummary[displayName] || { totalIn: 0, totalOut: 0 };
+    
+    let qtyOnHand = Number(item.qtyFinal);
+    if (isNaN(qtyOnHand)) {
+      qtyOnHand = qtyInitial + movesData.totalIn - movesData.totalOut;
+    }
+    if (qtyOnHand < 0) qtyOnHand = 0;
+
+    const actualSoldQty = movesData.totalOut || Number(item.soldYr) || 0;
+
+    const auditQty = Number(item.auditQty) || null;
+    const auditDate = item.auditDate || 'غير مجرود';
+
+    const priceClass = getPriceClass(salesPrice);
+    const stockValue = unitCost * qtyOnHand;
+    const avgInv = qtyOnHand > 0 ? qtyOnHand : 1;
+    const turnoverRate = Number((actualSoldQty / avgInv).toFixed(2));
+    const daysOfInventory = turnoverRate > 0 ? Math.round(365 / turnoverRate) : 999;
+
+    let movementStatus = 'دوران طبيعي';
+    let badgeClass = 'normal';
+    if (turnoverRate >= 4.0) { movementStatus = 'سريع الدوران'; badgeClass = 'fast'; }
+    else if (turnoverRate < 4.0 && turnoverRate >= 1.0) { movementStatus = 'دوران طبيعي'; badgeClass = 'normal'; }
+    else if (turnoverRate < 1.0 && turnoverRate > 0.1) { movementStatus = 'بطيء الدوران'; badgeClass = 'slow'; }
+    else { movementStatus = 'راكد'; badgeClass = 'dead'; }
+
+    let maxDiscountPct = null, floorPrice = null, hasCost = unitCost > 0;
+    if (hasCost && salesPrice > 0) {
+      floorPrice = unitCost / (1 - targetMargin);
+      maxDiscountPct = Math.max(0, 1 - (unitCost / (salesPrice * (1 - targetMargin))));
+    }
+
+    return {
+      ...item, displayName, category, unitCost, salesPrice, priceClass, qtyInitial, qtyOnHand,
+      totalIn: movesData.totalIn, totalOut: movesData.totalOut, auditQty, auditDate,
+      stockValue, actualSoldQty, turnoverRate, daysOfInventory, movementStatus, badgeClass, maxDiscountPct, floorPrice, hasCost
+    };
+  }
+
+  window.openSettingsModal = function() { 
+    document.getElementById("ruleCMinusMax").value = priceConfig.limitCMinus;
+    document.getElementById("ruleCMax").value = priceConfig.limitCMid;
+    syncPriceRuleInputs();
+    document.getElementById("settingsModal").classList.add("active"); 
+  };
+  window.closeSettingsModal = function() { document.getElementById("settingsModal").classList.remove("active"); };
+
+  document.getElementById("unlockCloudBtn").addEventListener("click", () => {
+    document.getElementById("masterLockModal").classList.add("active");
+  });
+  window.closeMasterLockModal = function() {
+    document.getElementById("masterLockModal").classList.remove("active");
+    document.getElementById("masterPasswordInput").value = "";
+  };
+  document.getElementById("confirmMasterPasswordBtn").addEventListener("click", () => {
+    if(document.getElementById("masterPasswordInput").value === MASTER_PASSWORD) {
+      closeMasterLockModal();
+      document.getElementById("protectedCloudSection").classList.remove("hidden");
+      document.getElementById("unlockCloudBtn").classList.add("hidden");
+    } else alert("كلمة السر الرئيسية غير صحيحة!");
+  });
+
+  document.getElementById("unlockPriceLimitsBtn").addEventListener("click", () => checkAdminAndTrigger('unlock_price_limits'));
+
+  document.getElementById("savePriceLimitsBtn").addEventListener("click", () => {
+    const cMin = Number(document.getElementById("ruleCMinusMax").value);
+    const cMid = Number(document.getElementById("ruleCMax").value);
+    if (cMin >= cMid || cMin <= 0) {
+      alert("خطأ: يجب أن يكون حد C- أقل من حد C");
+      return;
+    }
+    priceConfig.limitCMinus = cMin;
+    priceConfig.limitCMid = cMid;
+    localStorage.setItem("limit_c_minus", cMin);
+    localStorage.setItem("limit_c_mid", cMid);
+    alert("تم حفظ وتطبيق قواعد الفئات السعرية الجديدة!");
+    render();
+  });
+
+  document.getElementById("connectBtn").addEventListener("click", () => {
+    const url = document.getElementById("supaUrl").value.trim();
+    const key = document.getElementById("supaKey").value.trim();
+    const pass = document.getElementById("adminPasswordInput").value.trim();
+    if(!url || !key) { alert("يرجى إدخال البيانات"); return; }
+    try {
+      supabaseClient = supabase.createClient(url, key);
+      updateSyncStatus("connected", "متصل بالقاعدة السحابية");
+      localStorage.setItem("supa_url", url);
+      localStorage.setItem("supa_key", key);
+      localStorage.setItem("admin_password", pass || "admin123");
+      fetchCloudData();
+      subscribeToRealtime();
+      alert("تم الاتصال بنجاح!");
+    } catch(err) { updateSyncStatus("error", "خطأ الاتصال: " + err.message); }
+  });
+
+  window.addEventListener("DOMContentLoaded", () => {
+    const savedUrl = localStorage.getItem("supa_url") || "https://vpltgqemhjmelptnnabj.supabase.co";
+    const savedKey = localStorage.getItem("supa_key");
+    const savedPass = localStorage.getItem("admin_password");
+    document.getElementById("supaUrl").value = savedUrl;
+    if(savedKey) document.getElementById("supaKey").value = savedKey;
+    if(savedPass) document.getElementById("adminPasswordInput").value = savedPass;
+    if(savedUrl && savedKey) {
+      supabaseClient = supabase.createClient(savedUrl, savedKey);
+      fetchCloudData();
+      subscribeToRealtime();
+    }
+  });
+
+  function updateSyncStatus(type, text) {
+    const el = document.getElementById("syncStatus");
+    el.className = "sync-indicator " + type;
+    document.getElementById("syncText").textContent = text;
+  }
+
+  async function fetchCloudData() {
+    if(!supabaseClient) return;
+    updateSyncStatus("warning", "جاري مزامنة البيانات السحابية...");
+    const [invRes, movesRes] = await Promise.all([
+      supabaseClient.from("inventory").select("*"),
+      supabaseClient.from("stock_moves").select("*").order("date", { ascending: false })
+    ]);
+
+    if(invRes.error) updateSyncStatus("error", "خطأ: " + invRes.error.message);
+    else {
+      updateSyncStatus("connected", `متصل — ${invRes.data.length} صنف / ${movesRes.data ? movesRes.data.length : 0} حركة`);
+      state.moves = (movesRes.data || []).map(m => ({ ...m, product: cleanText(m.product) }));
+      const moveSummary = computeSalesAndStockFromMoves(state.moves);
+      state.items = invRes.data.map(i => processItem(i, state.targetMargin, moveSummary));
+      render();
+    }
+  }
+
+  function subscribeToRealtime() {
+    if(!supabaseClient) return;
+    supabaseClient.channel("public-db-changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "inventory" }, () => fetchCloudData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "stock_moves" }, () => fetchCloudData())
+      .subscribe();
+  }
+
+  window.closePasswordModal = function() {
+    document.getElementById("passwordModal").classList.remove("active");
+    document.getElementById("modalPasswordInput").value = "";
+    pendingUploadType = null;
+  };
+
+  function checkAdminAndTrigger(type) {
+    pendingUploadType = type;
+    if(type === 'unlock_price_limits') {
+      document.getElementById("passwordModalTitle").textContent = "فك قفل ضبط الحدود السعرية";
+      document.getElementById("passwordModalSub").textContent = "أدخل كلمة سر الأدمن الخاصة بالرفع للسماح بالتعديل:";
+    } else {
+      document.getElementById("passwordModalTitle").textContent = "صلاحيات الأدمن مطلوبة";
+      document.getElementById("passwordModalSub").textContent = "أدخل كلمة سر الأدمن للسماح برفع البيانات السحابية:";
+    }
+    document.getElementById("passwordModal").classList.add("active");
+  }
+
+  document.getElementById("confirmPasswordBtn").addEventListener("click", () => {
+    const enteredPass = document.getElementById("modalPasswordInput").value;
+    const storedPass = localStorage.getItem("admin_password") || "admin123";
+    if (enteredPass === storedPass) {
+      document.getElementById("passwordModal").classList.remove("active");
+      document.getElementById("modalPasswordInput").value = "";
+      if (pendingUploadType === 'unlock_price_limits') {
+        document.getElementById("protectedPriceSection").classList.remove("hidden");
+        document.getElementById("unlockPriceLimitsBtn").classList.add("hidden");
+      } else {
+        closeSettingsModal();
+        if (pendingUploadType === 'inv_initial') document.getElementById("fileInputInvInitial").click();
+        if (pendingUploadType === 'inv_final') document.getElementById("fileInputInvFinal").click();
+        if (pendingUploadType === 'audit') document.getElementById("fileInputAudit").click();
+        if (pendingUploadType === 'moves') document.getElementById("fileInputMoves").click();
+      }
+    } else alert("كلمة السر غير صحيحة!");
+  });
+
+  // Bind Buttons
+  document.getElementById("uploadInvInitialBtn").addEventListener("click", () => checkAdminAndTrigger('inv_initial'));
+  document.getElementById("uploadInvFinalBtn").addEventListener("click", () => checkAdminAndTrigger('inv_final'));
+  document.getElementById("uploadAuditBtn").addEventListener("click", () => checkAdminAndTrigger('audit'));
+  document.getElementById("uploadMovesBtn").addEventListener("click", () => checkAdminAndTrigger('moves'));
+
+  // Handler: Upload Moves
+  document.getElementById("fileInputMoves").addEventListener("change", async e => {
+    const files = e.target.files;
+    if(!files || !files.length) return;
+    
+    let allMoves = [];
+    updateSyncStatus("warning", "جاري قراءة وتنظيف بيانات شيت الحركة...");
+
+    for (let f = 0; f < files.length; f++) {
+      const file = files[f];
+      const data = await file.arrayBuffer();
+      const wb = XLSX.read(data, { type: 'array' });
+      
+      wb.SheetNames.forEach(sheetName => {
+        const json = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
+        json.forEach((r) => {
+          allMoves.push({
+            id: String(allMoves.length + 1),
+            date: String(r["Date"] || r["التاريخ"] || ""),
+            reference: String(r["Reference"] || r["المرجع"] || ""),
+            product: cleanText(r["Product"] || r["المنتج"] || ""),
+            from_loc: String(r["From"] || r["من"] || ""),
+            to_loc: String(r["To"] || r["إلى"] || ""),
+            qty: Math.abs(Number(r["Quantity"] || r["الكمية"] || 0)),
+            uom: String(r["Unit of Measure"] || r["وحدة القياس"] || "")
+          });
+        });
+      });
+    }
+
+    if(allMoves.length === 0) { alert("لم يتم العثور على بيانات حركات بالملف!"); return; }
+
+    updateSyncStatus("warning", `رفع ${allMoves.length} حركة مخزنية للسحابة...`);
+    await supabaseClient.from("stock_moves").delete().gte("id", "0");
+    const { error } = await supabaseClient.from("stock_moves").insert(allMoves);
+    if(error) alert("خطأ الرفع: " + error.message);
+    else { alert("تم رفع شيت الحركة بنجاح!"); fetchCloudData(); }
+  });
+
+  // Helper for Inventory Uploads (Initial, Final, Audit)
+  function handleInventoryUpload(file, fieldName, successMsg) {
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = async evt => {
+      const wb = XLSX.read(evt.target.result, {type: 'binary'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const json = XLSX.utils.sheet_to_json(ws);
+      const mapped = json.map((r, idx) => {
+        let obj = {
+          id: String(r["ID"] || r["Code"] || idx + 1),
+          barcode: String(r["Barcode"] || r["الباركود"] || ""),
+          name: cleanText(r["Display Name"] || r["Name"] || r["الاسم"] || ""),
+          cat: cleanText(r["Product Category"] || r["الفئة"] || "غير محدد"),
+          cost: Number(r["Cost"] || r["التكلفة"] || 0),
+          price: Number(r["Price"] || r["السعر"] || 0)
+        };
+        if (fieldName === 'qtyInitial') obj.qtyInitial = Number(r["Opening Stock"] || r["رصيد أول المدة"] || r["رصيد اول المدة"] || r["Quantity"] || 0);
+        if (fieldName === 'qtyFinal') obj.qtyFinal = Number(r["Closing Stock"] || r["رصيد آخر المدة"] || r["رصيد اخر المدة"] || r["Quantity"] || 0);
+        if (fieldName === 'audit') {
+          obj.auditQty = Number(r["Physical Audit"] || r["الجرد الفعلي"] || r["Quantity"] || 0);
+          obj.auditDate = String(r["Audit Date"] || r["تاريخ الجرد"] || new Date().toISOString().split('T')[0]);
+        }
+        return obj;
+      });
+
+      const { error } = await supabaseClient.from("inventory").upsert(mapped);
+      if(error) alert("خطأ الرفع: " + error.message);
+      else { alert(successMsg); fetchCloudData(); }
+    };
+    reader.readAsBinaryString(file);
+  }
+
+  document.getElementById("fileInputInvInitial").addEventListener("change", e => {
+    handleInventoryUpload(e.target.files[0], 'qtyInitial', "تم رفع رصيد أول المدة بنجاح!");
+  });
+  document.getElementById("fileInputInvFinal").addEventListener("change", e => {
+    handleInventoryUpload(e.target.files[0], 'qtyFinal', "تم رفع رصيد آخر المدة بنجاح!");
+  });
+  document.getElementById("fileInputAudit").addEventListener("change", e => {
+    handleInventoryUpload(e.target.files[0], 'audit', "تم رفع آخر جرد مخزون بنجاح!");
+  });
+
+  function renderCharts(items) {
+    const counts = { 'سريع الدوران': 0, 'دوران طبيعي': 0, 'بطيء الدوران': 0, 'راكد': 0 };
+    items.forEach(i => { if(counts[i.movementStatus] !== undefined) counts[i.movementStatus]++; });
+
+    const ctxDoughnut = document.getElementById('doughnutChart').getContext('2d');
+    if (doughnutChartInstance) doughnutChartInstance.destroy();
+    doughnutChartInstance = new Chart(ctxDoughnut, {
+      type: 'doughnut',
+      data: {
+        labels: ['سريع الدوران', 'دوران طبيعي', 'بطيء الدوران', 'راكد'],
+        datasets: [{
+          data: [counts['سريع الدوران'], counts['دوران طبيعي'], counts['بطيء الدوران'], counts['راكد']],
+          backgroundColor: ['#16a34a', '#2563eb', '#d97706', '#dc2626']
+        }]
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+    });
+
+    const priceCounts = { 'C-': 0, 'C': 0, 'C+': 0 };
+    items.forEach(i => { if(priceCounts[i.priceClass] !== undefined) priceCounts[i.priceClass]++; });
+
+    const ctxPriceDoughnut = document.getElementById('priceDoughnutChart').getContext('2d');
+    if (priceDoughnutChartInstance) priceDoughnutChartInstance.destroy();
+    priceDoughnutChartInstance = new Chart(ctxPriceDoughnut, {
+      type: 'doughnut',
+      data: {
+        labels: ['فئة C- (أقل)', 'فئة C (متوسط)', 'فئة C+ (أعلى)'],
+        datasets: [{
+          data: [priceCounts['C-'], priceCounts['C'], priceCounts['C+']],
+          backgroundColor: ['#9333ea', '#2563eb', '#16a34a']
+        }]
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+    });
+
+    const sortedBySales = [...items].sort((a,b) => b.actualSoldQty - a.actualSoldQty).slice(0, 7);
+    const ctxBar = document.getElementById('barChart').getContext('2d');
+    if (barChartInstance) barChartInstance.destroy();
+    barChartInstance = new Chart(ctxBar, {
+      type: 'bar',
+      data: {
+        labels: sortedBySales.map(i => i.displayName.length > 15 ? i.displayName.slice(0, 15) + '...' : i.displayName),
+        datasets: [{
+          label: 'الكميات المباعة',
+          data: sortedBySales.map(i => i.actualSoldQty),
+          backgroundColor: '#2563eb',
+          borderRadius: 6
+        }]
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+    });
+  }
+
+  function renderSummaryTable(items) {
+    const categoriesMap = {};
+    items.forEach(item => {
+      const catKey = `${item.category || 'غير محدد'} (${item.priceClass})`;
+      if (!categoriesMap[catKey]) {
+        categoriesMap[catKey] = { count: 0, totalValue: 0, totalSold: 0, totalTurnover: 0 };
+      }
+      categoriesMap[catKey].count += 1;
+      categoriesMap[catKey].totalValue += item.stockValue;
+      categoriesMap[catKey].totalSold += item.actualSoldQty;
+      categoriesMap[catKey].totalTurnover += item.turnoverRate;
+    });
+
+    const tbody = document.getElementById("summaryTableBody");
+    tbody.innerHTML = "";
+    Object.keys(categoriesMap).forEach(cat => {
+      const data = categoriesMap[cat];
+      const avgTurnover = (data.totalTurnover / data.count).toFixed(2);
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><b>${cat}</b></td>
+        <td class="num">${data.count}</td>
+        <td class="num">${data.totalValue.toLocaleString()} ج.م</td>
+        <td class="num" style="color:var(--primary); font-weight:bold;">${data.totalSold.toLocaleString()}</td>
+        <td class="num"><b>${avgTurnover}x</b></td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function renderAuditTable(items) {
+    const tbody = document.getElementById("auditTableBody");
+    tbody.innerHTML = "";
+    items.forEach(i => {
+      const hasAudit = i.auditQty !== null;
+      const diff = hasAudit ? i.auditQty - i.qtyOnHand : 0;
+      const isMatched = hasAudit && diff === 0;
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><b>${i.displayName}</b></td>
+        <td class="num">${i.qtyInitial}</td>
+        <td class="num" style="color:var(--success)">+${i.totalIn}</td>
+        <td class="num" style="color:var(--danger)">-${i.totalOut}</td>
+        <td class="num"><b>${i.qtyOnHand}</b></td>
+        <td class="num">${hasAudit ? i.auditQty : '—'}</td>
+        <td>${i.auditDate}</td>
+        <td class="num" style="font-weight:bold; color:${diff < 0 ? 'var(--danger)' : diff > 0 ? 'var(--success)' : 'inherit'}">
+          ${hasAudit ? (diff > 0 ? '+' + diff : diff) : '—'}
+        </td>
+        <td>
+          ${!hasAudit ? '<span class="badge normal">بانتظار الجرد</span>' : 
+            isMatched ? '<span class="badge match">مطابق 100%</span>' : '<span class="badge diff">فروقات جرد</span>'}
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function render() {
+    const targetFrac = Number(document.getElementById("targetMarginInput").value) / 100;
+    state.targetMargin = targetFrac;
+
+    const moveSummary = computeSalesAndStockFromMoves(state.moves);
+    let items = state.items.map(i => processItem(i, targetFrac, moveSummary));
+
+    let filteredItems = items.filter(i => {
+      if (state.category && i.category !== state.category) return false;
+      if (state.movement && i.movementStatus !== state.movement) return false;
+      if (state.priceClass && i.priceClass !== state.priceClass) return false;
+      if (state.search) {
+        const s = state.search.toLowerCase();
+        if (!i.displayName.toLowerCase().includes(s) && !i.barcode.toLowerCase().includes(s)) return false;
+      }
+      return true;
+    });
+
+    filteredItems.sort((a,b) => {
+      let av = a[state.sortKey], bv = b[state.sortKey];
+      if(av == null) return 1; if(bv == null) return -1;
+      return (av < bv ? -1 : 1) * state.sortDir;
+    });
+
+    const totalVal = filteredItems.reduce((acc, i) => acc + i.stockValue, 0);
+    const totalSoldQty = filteredItems.reduce((acc, i) => acc + i.actualSoldQty, 0);
+    const avgTurnover = filteredItems.length ? (filteredItems.reduce((acc, i) => acc + i.turnoverRate, 0) / filteredItems.length).toFixed(1) : 0;
+    const deadStock = filteredItems.filter(i => i.movementStatus === 'راكد');
+    const deadVal = deadStock.reduce((acc, i) => acc + i.stockValue, 0);
+
+    document.getElementById("kpiTotalValue").textContent = totalVal.toLocaleString() + " ج.م";
+    document.getElementById("kpiTotalSoldQty").textContent = totalSoldQty.toLocaleString();
+    document.getElementById("kpiMovesCount").textContent = `من واقع ${state.moves.length} حركة مخزنية`;
+    document.getElementById("kpiAvgTurnover").textContent = avgTurnover + "x";
+    document.getElementById("kpiDeadStockVal").textContent = deadVal.toLocaleString() + " ج.م";
+    document.getElementById("kpiDeadStockCount").textContent = `${deadStock.length} أصناف راكدة`;
+
+    renderCharts(filteredItems);
+    renderSummaryTable(filteredItems);
+    renderAuditTable(filteredItems);
+
+    const tbodyInv = document.getElementById("inventoryTableBody");
+    tbodyInv.innerHTML = "";
+    filteredItems.forEach(i => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><b>${i.displayName}</b><br><small style="color:var(--text-muted)">${i.barcode}</small></td>
+        <td>${i.category}</td>
+        <td><span class="badge price-class">${i.priceClass}</span></td>
+        <td class="num">${i.qtyOnHand}</td>
+        <td class="num" style="color:var(--primary); font-weight:bold;">${i.actualSoldQty}</td>
+        <td class="num">${i.hasCost ? i.unitCost.toFixed(2) : '<span style="color:red">غائبة</span>'}</td>
+        <td class="num">${i.salesPrice.toFixed(2)}</td>
+        <td class="num"><b>${i.turnoverRate}x</b></td>
+        <td class="num">${i.daysOfInventory > 365 ? '>365 يوم' : i.daysOfInventory + ' يوم'}</td>
+        <td><span class="badge ${i.badgeClass}">${i.movementStatus}</span></td>
+        <td class="num">${i.maxDiscountPct !== null ? (i.maxDiscountPct * 100).toFixed(1) + '%' : '—'}</td>
+        <td class="num">${i.floorPrice !== null ? i.floorPrice.toFixed(2) : '—'}</td>
+        <td class="num">${i.stockValue.toLocaleString()}</td>
+      `;
+      tbodyInv.appendChild(tr);
+    });
+
+    let filteredMoves = state.moves.filter(m => {
+      if (state.movesSearch) {
+        const s = state.movesSearch.toLowerCase();
+        if (!m.product.toLowerCase().includes(s) && !m.reference.toLowerCase().includes(s)) return false;
+      }
+      if (state.moveType === 'OUT' && !(m.to_loc && (m.to_loc.includes("Virtual") || m.to_loc.includes("Customer") || m.to_loc.includes("عملاء")))) return false;
+      if (state.moveType === 'IN' && !(m.from_loc && (m.from_loc.includes("Virtual") || m.from_loc.includes("Vendor") || m.from_loc.includes("موردين")))) return false;
+      return true;
+    });
+
+    const tbodyMoves = document.getElementById("movesTableBody");
+    tbodyMoves.innerHTML = "";
+    filteredMoves.forEach(m => {
+      const isOut = (m.to_loc && (m.to_loc.includes("Virtual") || m.to_loc.includes("Customer") || m.to_loc.includes("عملاء")));
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td class="num">${m.date}</td>
+        <td><b>${m.reference}</b></td>
+        <td>${m.product}</td>
+        <td><small>${m.from_loc}</small></td>
+        <td><small>${m.to_loc}</small></td>
+        <td class="num"><b>${m.qty}</b></td>
+        <td>${m.uom}</td>
+        <td><span class="badge ${isOut ? 'out' : 'in'}">${isOut ? 'صرف مبيعات' : 'توريد / نقل'}</span></td>
+      `;
+      tbodyMoves.appendChild(tr);
+    });
+
+    fillSelect("categoryFilter", [...new Set(state.items.map(i => i.category))], state.category);
+  }
+
+  function fillSelect(id, list, current) {
+    const sel = document.getElementById(id);
+    const first = sel.options[0];
+    sel.innerHTML = ""; sel.appendChild(first);
+    list.filter(Boolean).sort().forEach(v => {
+      const opt = document.createElement("option"); opt.value = v; opt.textContent = v;
+      if (v === current) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  }
+
+  document.getElementById("targetMarginInput").addEventListener("input", render);
+  document.getElementById("categoryFilter").addEventListener("change", e => { state.category = e.target.value; render(); });
+  document.getElementById("movementFilter").addEventListener("change", e => { state.movement = e.target.value; render(); });
+  document.getElementById("priceClassFilter").addEventListener("change", e => { state.priceClass = e.target.value; render(); });
+  document.getElementById("searchInput").addEventListener("input", e => { state.search = e.target.value; render(); });
+  document.getElementById("movesSearchInput").addEventListener("input", e => { state.movesSearch = e.target.value; render(); });
+  document.getElementById("moveTypeFilter").addEventListener("change", e => { state.moveType = e.target.value; render(); });
+
+  document.querySelectorAll("th[data-key]").forEach(th => {
+    th.addEventListener("click", () => {
+      const key = th.dataset.key;
+      if (state.sortKey === key) state.sortDir *= -1;
+      else { state.sortKey = key; state.sortDir = 1; }
+      render();
+    });
+  });
+
+})();
+</script>
+</body>
+</html>
