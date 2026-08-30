@@ -568,8 +568,12 @@
       </div>
       <div class="flex items-center justify-between gap-2 flex-wrap">
         <div id="unmatchedProductsCountLabel" class="text-xs text-slate-500 font-semibold"></div>
-        <button id="exportUnmatchedProductsBtn" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold py-1.5 px-3 rounded-lg border border-emerald-200 transition-all">⬇️ تصدير القائمة الكاملة Excel</button>
+        <div class="flex items-center gap-2 flex-wrap">
+          <button id="bulkAcceptFuzzyBtn" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold py-1.5 px-3 rounded-lg border border-indigo-200 transition-all">✨ قبول تلقائي لكل الاقتراحات عالية الثقة (≥85%)</button>
+          <button id="exportUnmatchedProductsBtn" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold py-1.5 px-3 rounded-lg border border-emerald-200 transition-all">⬇️ تصدير القائمة الكاملة Excel</button>
+        </div>
       </div>
+      <p class="text-[11px] text-slate-500 bg-indigo-50/50 border border-indigo-100 rounded-lg p-2">🔎 لكل اسم غير مطابق، النظام بيقترح تلقائياً أقرب صنف موجود (بناءً على تشابه الكلمات بعد تجاهل أرقام الإصدار/التعبئة الملتصقة زي "Collection2")، مع نسبة الثقة. الاقتراح لا يُطبَّق أبداً إلا بضغطة تأكيد صريحة منك — أو تجميعياً عبر الزر أعلاه لو الثقة عالية جداً.</p>
       <div id="unmatchedProductsListContainer" class="space-y-2"></div>
       <div id="unmatchedProductsLoadMoreRow"></div>
     </div>
@@ -1192,6 +1196,62 @@
       return Object.values(stats).sort((a, b) => b.totalQty - a.totalQty);
     }
 
+    /* ============================================================================
+       SECTION D.1 — Fuzzy product-name matching (suggestions only, never auto-applied
+       without an explicit click) -- for the common real-world case where the SAME
+       product is spelled slightly differently between the valuation export and the
+       moves export (a trailing variant/package index glued onto a word, like
+       "Collection2" or "Solo package3", extra/missing tokens, different word order).
+       An exact-match failure there is not a different product -- it is the same
+       words, so token-set overlap after stripping glued-on digits recovers it safely.
+       ============================================================================ */
+    function tokenizeForFuzzyMatch(s) {
+      return normalizeMatchKey(s)
+        .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+        .split(/\s+/)
+        .filter(Boolean)
+        .map(t => t.replace(/\d+$/, '')) // strip a digit run glued to the end of a token (variant/package index artifact)
+        .filter(t => t.length > 1);
+    }
+    // Built once per recompute from the CURRENT item list, then reused for every
+    // unmatched name -- an inverted index (token -> candidate item indices) so a
+    // lookup only scores items that share at least one token, instead of comparing
+    // against all tens of thousands of items for every one of thousands of unmatched names.
+    let fuzzyItemIndex = null;
+    function buildFuzzyItemIndex(items) {
+      const tokenMap = new Map();
+      const itemTokenSets = items.map(it => new Set(tokenizeForFuzzyMatch(it.displayName || it.name || '')));
+      itemTokenSets.forEach((tokens, idx) => {
+        tokens.forEach(t => {
+          if (!tokenMap.has(t)) tokenMap.set(t, []);
+          tokenMap.get(t).push(idx);
+        });
+      });
+      return { tokenMap, itemTokenSets, items };
+    }
+    // Returns the single best-scoring candidate item (Jaccard token overlap) above
+    // MIN_SCORE, or null. Never returns a "best guess" below the threshold -- an
+    // unconfident suggestion is worse than none, since it invites a wrong click.
+    const FUZZY_MIN_SCORE = 0.5;
+    function findBestFuzzyMatch(rawName, index) {
+      const nameTokens = tokenizeForFuzzyMatch(rawName);
+      if (!nameTokens.length) return null;
+      const nameTokenSet = new Set(nameTokens);
+      const candidateIdx = new Set();
+      nameTokens.forEach(t => { const list = index.tokenMap.get(t); if (list) list.forEach(i => candidateIdx.add(i)); });
+      let bestIdx = -1, bestScore = 0;
+      candidateIdx.forEach(idx => {
+        const itemTokens = index.itemTokenSets[idx];
+        if (!itemTokens.size) return;
+        let common = 0;
+        nameTokenSet.forEach(t => { if (itemTokens.has(t)) common++; });
+        const score = common / Math.max(nameTokenSet.size, itemTokens.size);
+        if (score > bestScore) { bestScore = score; bestIdx = idx; }
+      });
+      if (bestIdx === -1 || bestScore < FUZZY_MIN_SCORE) return null;
+      return { item: index.items[bestIdx], score: bestScore };
+    }
+
     function getMoveKeywords() {
       return {
         customer: splitKeywords(settings.customerKw),
@@ -1361,6 +1421,7 @@
       cachedProcessed = processed;
       lastDataQualityNotes = notes;
       lastUnmatchedStats = unmatchedStats;
+      fuzzyItemIndex = buildFuzzyItemIndex(processed);
       const unmatchedBtn = document.getElementById("openUnmatchedProductsBtn");
       if (unmatchedStats.length > 0) {
         unmatchedBtn.classList.remove("hidden");
@@ -1732,10 +1793,19 @@
           if (aborted) { alert("تم إلغاء رفع الملف."); return; }
           demoWasCleared = evictDemoDataIfNeeded();
           const { addedCount, duplicateCount } = mergeMovesIntoState(allMoves);
-          if (supabaseClient && addedCount) {
-            const newlyAdded = state.moves.slice(-addedCount);
-            setUploadLoading(true, `⏳ جاري رفع ${addedCount} حركة جديدة للسحابة...`);
-            await batchUpsert("stock_moves", newlyAdded);
+          // BUG FIX: this used to sync to Supabase ONLY when addedCount>0 (i.e. only rows
+          // that were "new" compared to the LOCAL in-memory session). That silently broke
+          // exactly this sequence: upload moves locally -> connect Supabase afterward ->
+          // re-upload the same file to seed the cloud. Local dedup correctly saw 0 "new"
+          // moves (they were already in this browser tab's memory) and so never pushed
+          // ANYTHING to Supabase -- "local already has it" and "cloud already has it" are
+          // two different facts, and only the second one should ever gate a cloud sync.
+          // upsert-by-id is idempotent, so it is always safe to push everything this file
+          // just mapped, whether or not it was locally new.
+          if (supabaseClient && allMoves.length) {
+            const movesToSync = allMoves.map(m => ({ ...m, id: m.id || moveId(m) }));
+            setUploadLoading(true, `⏳ جاري رفع ${movesToSync.length.toLocaleString('en-US')} حركة للسحابة...`);
+            await batchUpsert("stock_moves", movesToSync);
           }
           recomputeAndRenderAll();
           let movesMsg = (demoWasCleared ? `🧹 تم حذف بيانات العرض التجريبية تلقائياً لأن هذا أول رفع حقيقي.\n\n` : '') +
@@ -1937,19 +2007,33 @@
       const stats = lastUnmatchedStats;
       const container = document.getElementById("unmatchedProductsListContainer");
       const visible = stats.slice(0, unmatchedProductsRenderLimit);
-      container.innerHTML = visible.map(s => `
+      container.innerHTML = visible.map(s => {
+        const suggestion = fuzzyItemIndex ? findBestFuzzyMatch(s.displayName, fuzzyItemIndex) : null;
+        const suggestionHtml = suggestion ? `
+          <div class="fuzzy-suggestion-box w-full bg-indigo-50 border border-indigo-200 rounded-lg p-2 flex items-center justify-between gap-2 flex-wrap" data-suggested-item-key="${escapeHtml(suggestion.item.key)}">
+            <div class="text-[11px] text-indigo-900">🔎 هل تقصد: <strong>${escapeHtml(suggestion.item.displayName)}</strong>؟ <span class="text-indigo-500">(تشابه ${Math.round(suggestion.score * 100)}%)</span></div>
+            <div class="flex items-center gap-2">
+              <button class="fuzzy-accept-btn px-2 py-1 bg-indigo-600 text-white text-[11px] font-bold rounded-md">نعم، اربط</button>
+              <button class="fuzzy-reject-btn px-2 py-1 bg-white border border-indigo-200 text-indigo-700 text-[11px] font-bold rounded-md">لا، ابحث يدوياً</button>
+            </div>
+          </div>` : '';
+        return `
         <div class="border border-slate-200 rounded-xl p-3 flex flex-wrap items-center gap-3" data-unmatched-key="${escapeHtml(s.key)}">
           <div class="flex-1 min-w-[220px]">
             <div class="text-xs font-bold text-slate-900">${escapeHtml(s.displayName)}</div>
             <div class="text-[11px] text-slate-500">إجمالي الكمية المتحركة: <span class="num font-semibold">${s.totalQty.toLocaleString('en-US')}</span> — عدد الحركات: <span class="num">${s.moveCount.toLocaleString('en-US')}</span></div>
           </div>
-          <div class="relative flex-1 min-w-[220px]">
-            <input type="text" class="unmatched-map-input w-full p-2 border border-slate-300 rounded-lg text-xs outline-none" placeholder="اكتب اسم الصنف الحقيقي للربط...">
-            <div class="unmatched-suggestions hidden absolute z-20 bg-white border border-slate-200 rounded-lg shadow-lg mt-1 w-full max-h-48 overflow-y-auto"></div>
+          ${suggestionHtml}
+          <div class="manual-search-row w-full flex flex-wrap items-center gap-3${suggestion ? ' hidden' : ''}">
+            <div class="relative flex-1 min-w-[220px]">
+              <input type="text" class="unmatched-map-input w-full p-2 border border-slate-300 rounded-lg text-xs outline-none" placeholder="اكتب اسم الصنف الحقيقي للربط...">
+              <div class="unmatched-suggestions hidden absolute z-20 bg-white border border-slate-200 rounded-lg shadow-lg mt-1 w-full max-h-48 overflow-y-auto"></div>
+            </div>
+            <button class="unmatched-link-btn px-3 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg opacity-50 cursor-not-allowed" disabled>ربط</button>
+            <button class="unmatched-ignore-btn px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg whitespace-nowrap">تجاهل (مش صنف مخزون)</button>
           </div>
-          <button class="unmatched-link-btn px-3 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg opacity-50 cursor-not-allowed" disabled>ربط</button>
-          <button class="unmatched-ignore-btn px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg whitespace-nowrap">تجاهل (مش صنف مخزون)</button>
-        </div>`).join('') || `<div class="p-6 text-center text-slate-400 text-xs">لا توجد أصناف غير مطابقة 🎉</div>`;
+        </div>`;
+      }).join('') || `<div class="p-6 text-center text-slate-400 text-xs">لا توجد أصناف غير مطابقة 🎉</div>`;
 
       document.getElementById("unmatchedProductsCountLabel").innerText =
         stats.length ? `يعرض ${visible.length.toLocaleString('en-US')} من إجمالي ${stats.length.toLocaleString('en-US')} صنف غير مطابق` : '';
@@ -1979,6 +2063,23 @@
     }, 200));
 
     document.getElementById("unmatchedProductsListContainer").addEventListener("click", (e) => {
+      const fuzzyAccept = e.target.closest(".fuzzy-accept-btn");
+      if (fuzzyAccept) {
+        const box = fuzzyAccept.closest(".fuzzy-suggestion-box");
+        const row = fuzzyAccept.closest("[data-unmatched-key]");
+        state.productAliases[row.dataset.unmatchedKey] = { type: "mapped", itemKey: box.dataset.suggestedItemKey };
+        saveProductAliases();
+        recomputeAndRenderAll();
+        renderUnmatchedProductsList();
+        return;
+      }
+      const fuzzyReject = e.target.closest(".fuzzy-reject-btn");
+      if (fuzzyReject) {
+        const row = fuzzyReject.closest("[data-unmatched-key]");
+        row.querySelector(".fuzzy-suggestion-box").classList.add("hidden");
+        row.querySelector(".manual-search-row").classList.remove("hidden");
+        return;
+      }
       const suggestion = e.target.closest(".unmatched-suggestion-item");
       if (suggestion) {
         const row = suggestion.closest("[data-unmatched-key]");
@@ -2024,6 +2125,33 @@
         exportRowsToExcel(`أصناف_غير_مطابقة_${new Date().toISOString().slice(0,10)}.xlsx`, rows);
       });
     });
+    const FUZZY_BULK_ACCEPT_SCORE = 0.85;
+    document.getElementById("bulkAcceptFuzzyBtn").addEventListener("click", () => {
+      if (!fuzzyItemIndex) return;
+      setUploadLoading(true, "⏳ جاري حساب الاقتراحات لكل الأصناف غير المطابقة...");
+      setTimeout(() => {
+        try {
+          const candidates = [];
+          lastUnmatchedStats.forEach(s => {
+            const m = findBestFuzzyMatch(s.displayName, fuzzyItemIndex);
+            if (m && m.score >= FUZZY_BULK_ACCEPT_SCORE) {
+              candidates.push({ key: s.key, displayName: s.displayName, itemKey: m.item.key, itemName: m.item.displayName, score: m.score });
+            }
+          });
+          setUploadLoading(false);
+          if (!candidates.length) { alert("لا توجد اقتراحات بثقة ٪85 أو أعلى حالياً بين الأصناف غير المطابقة المتبقية."); return; }
+          const sample = candidates.slice(0, 5).map(c => `"${c.displayName}" ← ${Math.round(c.score * 100)}% ← "${c.itemName}"`).join("\n");
+          const ok = confirm(`سيتم ربط ${candidates.length.toLocaleString('en-US')} اسم تلقائياً بأصناف موجودة (ثقة ≥85%).\n\nأمثلة:\n${sample}\n\nهذا لا يحذف أي بيانات ويمكن مراجعة أي ربط لاحقاً. متابعة؟`);
+          if (!ok) return;
+          candidates.forEach(c => { state.productAliases[c.key] = { type: "mapped", itemKey: c.itemKey }; });
+          saveProductAliases();
+          recomputeAndRenderAll();
+          renderUnmatchedProductsList();
+          alert(`✅ تم ربط ${candidates.length.toLocaleString('en-US')} اسم تلقائياً. راجع القائمة المتبقية (الاقتراحات الأقل ثقة أو المنعدمة) وحلّها يدوياً واحداً واحداً.`);
+        } catch (err) { setUploadLoading(false); console.error(err); alert("حدث خطأ: " + err.message); }
+      }, 30);
+    });
+
     document.getElementById("unlockAllBtn").addEventListener("click", () => requestPassword());
     document.getElementById("confirmMasterPasswordBtn").addEventListener("click", () => {
       const pass = document.getElementById("masterPasswordInput").value;
