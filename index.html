@@ -1349,7 +1349,10 @@
         if (!itemsErr && cloudItems && cloudItems.length > 0) { state.items = cloudItems; state.isDemoData = false; }
         else if (itemsErr) console.warn("inventory_items load error:", itemsErr.message);
         const { data: cloudMoves, error: movesErr } = await selectAllRows("stock_moves");
-        if (!movesErr && cloudMoves && cloudMoves.length > 0) { state.moves = cloudMoves; state.isDemoData = false; }
+        // The cloud column is snake_case "move_type" (see the sync-side comment above) --
+        // map it back to the in-memory "moveType" field every other function in this file
+        // already expects, so nothing downstream (filters, KPIs, exports) needs to change.
+        if (!movesErr && cloudMoves && cloudMoves.length > 0) { state.moves = cloudMoves.map(m => ({ ...m, moveType: m.move_type })); state.isDemoData = false; }
         else if (movesErr) console.warn("stock_moves load error:", movesErr.message);
         recomputeAndRenderAll();
         renderCloudStatus(itemsErr, movesErr);
@@ -1856,7 +1859,19 @@
           // just mapped, whether or not it was locally new.
           let movesSyncResult = null;
           if (supabaseClient && allMoves.length) {
-            const movesToSync = allMoves.map(m => ({ ...m, id: m.id || moveId(m) }));
+            // Send an EXPLICIT whitelist of snake_case columns, not a blind {...m} spread.
+            // Two real reasons: (1) "moveType" is camelCase -- if the Supabase table was
+            // created with an unquoted column name, Postgres silently folds it to lowercase
+            // ("movetype"), and PostgREST then rejects the JSON key "moveType" as an unknown
+            // column ("Could not find the 'moveType' column..."). snake_case everywhere
+            // sidesteps this entire class of casing bug. (2) a fixed, known column list can
+            // never accidentally leak an unexpected internal-only field to the DB schema.
+            const movesToSync = allMoves.map(m => ({
+              id: m.id || moveId(m),
+              date: m.date, reference: m.reference, product: m.product,
+              from_loc: m.from_loc, to_loc: m.to_loc, qty: m.qty, uom: m.uom,
+              move_type: m.moveType
+            }));
             setUploadLoading(true, `⏳ جاري رفع ${movesToSync.length.toLocaleString('en-US')} حركة للسحابة...`);
             movesSyncResult = await batchUpsert("stock_moves", movesToSync);
           }
