@@ -1858,6 +1858,7 @@
           // upsert-by-id is idempotent, so it is always safe to push everything this file
           // just mapped, whether or not it was locally new.
           let movesSyncResult = null;
+          let movesCollapsedByIdentity = 0;
           if (supabaseClient && allMoves.length) {
             // Send an EXPLICIT whitelist of snake_case columns, not a blind {...m} spread.
             // Two real reasons: (1) "moveType" is camelCase -- if the Supabase table was
@@ -1866,8 +1867,26 @@
             // column ("Could not find the 'moveType' column..."). snake_case everywhere
             // sidesteps this entire class of casing bug. (2) a fixed, known column list can
             // never accidentally leak an unexpected internal-only field to the DB schema.
-            const movesToSync = allMoves.map(m => ({
-              id: m.id || moveId(m),
+            //
+            // CRITICAL DEDUP STEP: two source rows that share the exact same identity
+            // signature (date+reference+product+qty+from_loc+to_loc) hash to the SAME id
+            // (see moveId/moveSignature above) -- and mergeMovesIntoState() already treats
+            // them as "the same move" locally, keeping only one copy in state.moves. But a
+            // single upsert() call is one SQL statement, and Postgres flatly REJECTS a batch
+            // that contains 2+ rows with the same primary-key value with "ON CONFLICT DO
+            // UPDATE command cannot affect row a second time" (code 21000) -- it will not
+            // silently keep the last one, it aborts the ENTIRE batch. With a real export of
+            // 50,000+ rows this is common: many ERPs leave "reference" blank or repeated for
+            // whole batches of a transfer/movement report, so several genuinely-looking-alike
+            // rows collapse to one signature. Deduplicating by id here keeps the cloud payload
+            // internally consistent with what mergeMovesIntoState already decided locally,
+            // and is the ONLY way to satisfy Postgres's one-row-per-batch rule for ON CONFLICT.
+            // The collapsed count is reported to the user explicitly -- never silently.
+            const movesById = new Map();
+            allMoves.forEach(m => { const id = m.id || moveId(m); if (!movesById.has(id)) movesById.set(id, { ...m, id }); });
+            movesCollapsedByIdentity = allMoves.length - movesById.size;
+            const movesToSync = Array.from(movesById.values()).map(m => ({
+              id: m.id,
               date: m.date, reference: m.reference, product: m.product,
               from_loc: m.from_loc, to_loc: m.to_loc, qty: m.qty, uom: m.uom,
               move_type: m.moveType
@@ -1881,6 +1900,9 @@
           // CRITICAL: never claim the cloud sync succeeded without checking the actual result.
           // This is exactly the class of silent failure that caused moves to look "processed"
           // while never actually reaching the database.
+          if (movesCollapsedByIdentity > 0) {
+            movesMsg += `\n\nℹ️ ${movesCollapsedByIdentity.toLocaleString('en-US')} صف من هذا الملف له نفس "بصمة الهوية" (نفس التاريخ + المرجع + الصنف + الكمية + من/إلى) لصف آخر — تم اعتبارهم نفس الحركة وتوحيدهم في صف واحد قبل الرفع للسحابة (بنفس منطق التكرار المطبّق محلياً). لو دي فعلاً حركات منفصلة حقيقية (مش تكرار عرضي في التصدير) وتشاركت بالصدفة في كل هذه الحقول (شائع لو حقل "المرجع" فاضي غالباً في تصديرك)، فهذا يعني نقصاً حقيقياً في عدد الحركات المُحتسبة — راجع مصدر البيانات وتأكد هل عمود "المرجع" فيه رقم مستند فريد لكل حركة أم لا.`;
+          }
           if (movesSyncResult) {
             if (movesSyncResult.ok) {
               movesMsg += `\n\n☁️ تم رفع ${movesSyncResult.syncedCount.toLocaleString('en-US')} حركة إلى قاعدة البيانات السحابية (Supabase) بنجاح.`;
