@@ -49,6 +49,14 @@
       overflow-y: auto;
     }
     .modal.active { display: flex; }
+    /* The 5 upload buttons now live INSIDE the settings modal, so clicking one opens the
+       password/mapping-review modals WHILE settingsModal is still active underneath (kept
+       open on purpose -- lets the cloud-sync status update be visible immediately after an
+       upload). All .modal elements share z-index:50, and two active fixed-position modals at
+       the same z-index stack by DOM order -- since settingsModal is later in the DOM than
+       passwordModal, it would otherwise paint OVER it and hide the password prompt entirely.
+       Pinning settingsModal to a lower z-index while active fixes that stacking order. */
+    #settingsModal.active { z-index: 40; }
     .badge {
       padding: 0.25rem 0.625rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700;
       display: inline-block; white-space: nowrap;
@@ -122,19 +130,15 @@
     <span id="uploadStatusText" class="text-sm font-semibold text-blue-800">جاري معالجة البيانات...</span>
   </div>
   <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-    <!-- Global Controls & Quick Uploads Bar -->
+    <!-- Global Controls Bar -- the 5 upload buttons that used to live here now live inside
+         الإعدادات (see MODAL 2) to keep this main view a clean, read-only analytics screen;
+         only the live business-assumption input (target margin) stays here for quick access. -->
     <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-4">
       <div class="flex items-center gap-3 bg-slate-50 p-2 px-3 rounded-xl border border-slate-200">
         <label for="targetMarginInput" class="text-xs font-bold text-slate-700">هامش الربح المستهدف (%):</label>
         <input type="number" id="targetMarginInput" value="40" min="0" max="100" class="w-16 p-1 border border-slate-300 rounded text-center text-xs font-bold focus:ring-2 focus:ring-blue-500 outline-none">
       </div>
-      <div class="flex flex-wrap items-center gap-2">
-        <button id="uploadInvInitialBtn" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2 px-3 rounded-xl transition-all flex items-center gap-1">📥 رصيد أول المدة</button>
-        <button id="uploadInvFinalBtn" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2 px-3 rounded-xl transition-all flex items-center gap-1">📥 رصيد آخر المدة</button>
-        <button id="uploadAuditBtn" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2 px-3 rounded-xl transition-all flex items-center gap-1">📋 جرد فعلي</button>
-        <button id="uploadValuationBtn" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2 px-3 rounded-xl transition-all flex items-center gap-1">💰 تكاليف وأسعار</button>
-        <button id="uploadMovesBtn" class="bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold py-2 px-3 rounded-xl border border-blue-200 transition-all flex items-center gap-1">🔄 رفع حركات المخزون</button>
-      </div>
+      
     </div>
     <input type="file" id="fileInputInvInitial" accept=".xlsx, .xls, .csv" class="hidden">
     <input type="file" id="fileInputInvFinal" accept=".xlsx, .xls, .csv" class="hidden">
@@ -375,68 +379,35 @@
         <button onclick="closeSettingsModal()" class="text-slate-400 hover:text-slate-600">✕</button>
       </div>
 
-      <!-- Business rules for classifying stock moves -- kept OUTSIDE the admin lock since
-           day-to-day staff need to tune it, but redesigned to be understandable without
-           any technical background: plain language + a live "جرّب بنفسك" tester. -->
-      <div class="space-y-3 border border-emerald-200 bg-emerald-50/50 p-4 rounded-xl">
-        <h4 class="text-xs font-bold text-emerald-900">قواعد تصنيف حركات المخزون (مبسّطة)</h4>
-        <p class="text-[12px] text-emerald-900 bg-white/70 border border-emerald-200 rounded-lg p-3 leading-relaxed">
-          <strong>الفكرة ببساطة:</strong> عندما ترفع ملف حركات، كل حركة لها "من موقع" و"إلى موقع". النظام يقرر نوعها بالنظر إلى كلمات مفتاحية في اسم الموقع:
-          <br>• لو "إلى موقع" فيها كلمة من قائمة <strong>"العملاء"</strong> → الحركة تُحسب <strong>بيع حقيقي</strong>.
-          <br>• لو "من موقع" فيها كلمة من قائمة <strong>"الموردين"</strong> → الحركة تُحسب <strong>شراء حقيقي</strong>.
-          <br>• أي حركة تانية (بين فروعك أو مخازنك أنت) → <strong>تحويل مخزني داخلي</strong>: تدخل في حساب الوارد/المنصرف الدفتري، لكن لا تُحسب ضمن المبيعات أو المشتريات الفعلية.
-        </p>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-          <div>
-            <label class="block text-slate-600 mb-1">اسم مخزنك الرئيسي (الذي تجرده وتقارنه بالدفاتر):</label>
-            <input type="text" id="ruleMainWarehouseKw" class="w-full p-2 border border-slate-300 rounded-lg outline-none mono" placeholder="WH/Stock">
-          </div>
-          <div>
-            <label class="block text-slate-600 mb-1">كلمات تدل على "عميل حقيقي":</label>
-            <input type="text" id="ruleCustomerKw" class="w-full p-2 border border-slate-300 rounded-lg outline-none mono" placeholder="Customer, عملاء">
-          </div>
-          <div>
-            <label class="block text-slate-600 mb-1">كلمات تدل على "مورّد حقيقي":</label>
-            <input type="text" id="ruleVendorKw" class="w-full p-2 border border-slate-300 rounded-lg outline-none mono" placeholder="Vendor, مورد">
-          </div>
-          <div>
-            <label class="block text-slate-600 mb-1">كلمات تدل على "هالك/تالف":</label>
-            <input type="text" id="ruleScrapKw" class="w-full p-2 border border-slate-300 rounded-lg outline-none mono" placeholder="Scrap, تالف, هالك">
-          </div>
-        </div>
-        <button id="saveMoveRulesBtn" class="px-4 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-all">حفظ القواعد</button>
+      
 
-        <div class="border-t border-emerald-200 pt-3 space-y-2">
-          <label class="text-xs font-bold text-emerald-900 block">🧪 جرّب بنفسك: اكتب اسم موقع من ملفك وشوف تصنيفه فوراً</label>
-          <input type="text" id="ruleTesterInput" placeholder="مثال: Virtual Locations/مخزن فرع طنطا سعيد" class="w-full p-2 border border-slate-300 rounded-lg text-xs outline-none mono">
-          <div id="ruleTesterResult" class="text-xs font-bold"></div>
+      
+
+            <!-- Upload controls remain available inside Settings. -->
+      <div class="space-y-2 border border-blue-200 bg-blue-50/50 p-4 rounded-xl">
+        <h4 class="text-xs font-bold text-blue-900">📤 رفع ملفات البيانات</h4>
+        <div class="flex flex-wrap items-center gap-2">
+          <button id="uploadInvInitialBtn" class="bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold py-2 px-3 rounded-xl border border-slate-200 transition-all flex items-center gap-1">📥 رصيد أول المدة</button>
+          <button id="uploadInvFinalBtn" class="bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold py-2 px-3 rounded-xl border border-slate-200 transition-all flex items-center gap-1">📥 رصيد آخر المدة</button>
+          <button id="uploadAuditBtn" class="bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold py-2 px-3 rounded-xl border border-slate-200 transition-all flex items-center gap-1">📋 جرد فعلي</button>
+          <button id="uploadValuationBtn" class="bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold py-2 px-3 rounded-xl border border-slate-200 transition-all flex items-center gap-1">💰 تكاليف وأسعار</button>
+          <button id="uploadMovesBtn" class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2 px-3 rounded-xl transition-all flex items-center gap-1">🔄 رفع حركات المخزون</button>
         </div>
       </div>
 
-      <!-- Category-path rule: ERP category exports are almost always a "/"-separated
-           hierarchy (e.g. Odoo's "All / Saleable / Shirts" or "T-Shirtk / Summer / T-Shirt
-           / Span / Basic"), and WHICH level of that path is "the real category" is a
-           business convention that differs per company/instance -- the software cannot
-           guess it with certainty, so it's a setting with a live preview, not a hidden
-           guess. Changing it and saving re-derives every already-uploaded item's category
-           immediately (from the raw path kept alongside it) -- no re-upload needed. -->
-      <div class="space-y-3 border border-indigo-200 bg-indigo-50/50 p-4 rounded-xl">
-        <h4 class="text-xs font-bold text-indigo-900">قاعدة تصنيف الفئات (من مسار الفئة في ملف التقييم)</h4>
-        <p class="text-[12px] text-indigo-900 bg-white/70 border border-indigo-200 rounded-lg p-3 leading-relaxed">
-          فئات ERP عادة تُصدَّر كمسار متدرج مفصول بـ "/" (مثال: <span class="mono">T-Shirtk / Summer / T-Shirt / Span / Basic</span>). أي مستوى في هذا المسار هو "الفئة الحقيقية" يختلف حسب طريقة تنظيمك لشجرة الفئات — اختر القاعدة المناسبة لك:
-        </p>
+      <!-- Category selector kept as a compact setting. -->
+      <div class="space-y-2">
+        <label for="categoryLevelModeSelect" class="text-xs font-bold text-slate-700 block">الفئة</label>
         <select id="categoryLevelModeSelect" class="w-full p-2 border border-slate-300 rounded-lg text-xs outline-none">
-          <option value="second">المستوى الثاني في المسار (الافتراضي — مناسب لمعظم تصديرات Odoo)</option>
-          <option value="first">أول مستوى غير عام (يتخطى كلمات مثل All/الكل فقط)</option>
-          <option value="last">آخر مستوى (الأكثر تفصيلاً / الأدق تحديداً)</option>
+          <option value="1">المستوى 1</option>
+          <option value="2">المستوى 2</option>
+          <option value="3">المستوى 3</option>
+          <option value="4">المستوى 4</option>
+          <option value="5">المستوى 5</option>
         </select>
-        <div class="border-t border-indigo-200 pt-3 space-y-2">
-          <label class="text-xs font-bold text-indigo-900 block">🧪 جرّب بنفسك: الصق مسار فئة من ملفك وشوف الناتج فوراً</label>
-          <input type="text" id="categoryTesterInput" value="T-Shirtk / Summer / T-Shirt / Span / Basic" class="w-full p-2 border border-slate-300 rounded-lg text-xs outline-none mono">
-          <div id="categoryTesterResult" class="text-xs font-bold text-indigo-700"></div>
-        </div>
-        <button id="saveCategoryRuleBtn" class="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition-all">حفظ وإعادة تصنيف كل الأصناف الآن</button>
       </div>
+
+
 
       <!-- Everything below requires the admin password to even VIEW, let alone edit --
            previously the credentials box sat here wide open, which is exactly the
@@ -445,8 +416,8 @@
       <div class="border border-slate-300 bg-slate-50 rounded-xl p-4">
         <div class="flex items-center justify-between">
           <div>
-            <h4 class="text-xs font-bold text-slate-800">🔒 الإعدادات المحمية بكلمة سر المدير</h4>
-            <p class="text-[11px] text-slate-500 mt-0.5">كلمات السر، حدود الفئات السعرية، الربط السحابي، ومسح البيانات — كلها هنا، محمية بكلمة سر واحدة.</p>
+                        <h4 class="text-xs font-bold text-slate-800">الربط</h4>
+
           </div>
           <button id="unlockAllBtn" class="text-xs font-bold text-blue-700 hover:underline whitespace-nowrap">🔓 فتح الإعدادات المحمية</button>
         </div>
@@ -484,7 +455,7 @@
           </div>
 
           <div class="space-y-3 border-t border-slate-200 pt-4">
-            <h4 class="text-xs font-bold text-blue-900">إعدادات الربط السحابي (Supabase Cloud API)</h4>
+            <h4 class="text-xs font-bold text-blue-900">الربط</h4>
             <div>
               <label class="block text-slate-600 text-xs mb-1">Project URL:</label>
               <input type="text" id="supabaseUrlInput" placeholder="https://xyz.supabase.co" class="w-full p-2 border border-slate-300 rounded-lg text-xs outline-none mono">
@@ -693,19 +664,42 @@
     // 2nd segment "Saleable" -- but a THIRD company might genuinely want the leaf, or
     // the first non-generic label). So this is a configurable, user-confirmed setting
     // (see settings.categoryLevelMode) with a live tester, not a hardcoded heuristic.
+    // Category level is now a plain 1-based level number ("1".."5") picked from a dropdown
+    // that shows each level's ACTUAL resolved value live (see refreshCategoryLevelOptions),
+    // rather than the old abstract "first / second / last" labels. "first"/"second"/"last"
+    // are still accepted here ONLY so a value saved by an earlier version of this file keeps
+    // working unchanged (migrateLegacyCategoryMode() below converts it to the numeric
+    // equivalent once, silently, with no change in the actual computed category).
     function deriveCategoryLabel(rawPath, mode) {
       const parts = String(rawPath).split("/").map(s => s.trim()).filter(Boolean);
       if (!parts.length) return rawPath;
-      const m = mode || "second";
-      if (m === "last") return parts[parts.length - 1];
-      if (m === "first") {
+      const level = parseInt(mode, 10);
+      if (isFinite(level) && level >= 1) {
+        // A path shallower than the requested level falls back to its deepest available
+        // segment instead of returning blank -- e.g. asking for "المستوى 4" on a 2-level
+        // path still returns something usable rather than an empty category.
+        return parts[Math.min(level, parts.length) - 1];
+      }
+      if (mode === "last") return parts[parts.length - 1];
+      if (mode === "first") {
         for (const p of parts) { if (!GENERIC_CATEGORY_ROOTS.includes(normalizeHeader(p))) return p; }
         return parts[parts.length - 1];
       }
-      // "second" (default): the level right under the root -- this is the level Odoo's
-      // own UI treats as the top of a company's OWN category tree, regardless of what
-      // the auto-generated root segment happens to be called.
+      // Default / legacy "second": the level right under the root -- this is the level
+      // Odoo's own UI treats as the top of a company's OWN category tree.
       return parts.length >= 2 ? parts[1] : parts[0];
+    }
+    // One-time, behavior-preserving migration: "second" -> level 2 (exact same result for
+    // every path), "first" -> level 1 (exact match for the overwhelming majority of real
+    // paths -- only differs if segment 1 is itself a generic root word), "last" -> level 5
+    // (exact match for any path with <=5 segments, which covers virtually all real ERP
+    // category trees). Never silently changes what's already been computed and saved --
+    // level 2 for "second" is mathematically identical, not an approximation.
+    function migrateLegacyCategoryMode(mode) {
+      if (mode === "second") return "2";
+      if (mode === "first") return "1";
+      if (mode === "last") return "5";
+      return mode;
     }
 
     const SYN = {
@@ -1064,7 +1058,7 @@
       customerKw: "Customer, عملاء",
       vendorKw: "Vendor, مورد",
       scrapKw: "Scrap, تالف, هالك",
-      categoryLevelMode: "second"
+      categoryLevelMode: "2"
     };
     function loadSetting(key, fallback) {
       const v = localStorage.getItem(key);
@@ -1079,8 +1073,12 @@
       customerKw: loadSetting("rule_customer_kw", DEFAULTS.customerKw),
       vendorKw: loadSetting("rule_vendor_kw", DEFAULTS.vendorKw),
       scrapKw: loadSetting("rule_scrap_kw", DEFAULTS.scrapKw),
-      categoryLevelMode: loadSetting("category_level_mode", DEFAULTS.categoryLevelMode)
+      categoryLevelMode: migrateLegacyCategoryMode(loadSetting("category_level_mode", DEFAULTS.categoryLevelMode))
     };
+    // Persist the migration immediately (silent, one-time, behavior-preserving -- see
+    // migrateLegacyCategoryMode's comment) so localStorage itself is cleaned up, not just
+    // the in-memory value, and the settings UI never has to know the old string ever existed.
+    localStorage.setItem("category_level_mode", settings.categoryLevelMode);
 
     let pendingUploadType = null;
     let supabaseClient = null;
@@ -1527,8 +1525,10 @@
     function renderCategorySummary(processed) {
       const tbody = document.getElementById("categorySummaryBody");
       const rows = computeCategorySummary(processed);
-      const html = rows.map(g => `<tr>
-            <td class="p-3"><strong>${g.category}</strong></td>
+      // data-category + the "drill-into" cue makes every row clickable to jump straight
+      // into جدول المخزون pre-filtered to exactly this category (see drillDownToInventory).
+      const html = rows.map(g => `<tr class="cursor-pointer hover:bg-indigo-50 transition-colors" data-category="${escapeHtml(g.category)}" title="اضغط لعرض أصناف هذه الفئة فقط في جدول المخزون">
+            <td class="p-3"><strong>${g.category}</strong> <span class="text-indigo-400 text-[10px]">↗</span></td>
             <td class="p-3 num">${g.count.toLocaleString('en-US')}</td>
             <td class="p-3 num">${g.stockVal.toLocaleString('en-US', {maximumFractionDigits: 0})}</td>
             <td class="p-3 num">${g.soldQty.toLocaleString('en-US')}</td>
@@ -1673,17 +1673,41 @@
       if (btn) btn.addEventListener("click", () => { movesRenderLimit += 300; refreshMovesView(); });
     }
 
+    // Cross-filtering / drill-down: clicking a chart segment, a bar, or a category-summary
+    // row jumps straight to جدول المخزون pre-filtered to exactly that slice -- turns "what
+    // items ARE inside that 40% راكد slice?" from a manual filter hunt into one click.
+    // Always resets every OTHER filter first, so the result is never confused by a filter
+    // left over from a previous screen.
+    function drillDownToInventory({ category = "", movement = "", priceClass = "", search = "" } = {}) {
+      state.category = category; state.movement = movement; state.priceClass = priceClass; state.search = search;
+      document.getElementById("categoryFilter").value = category;
+      document.getElementById("movementFilter").value = movement;
+      document.getElementById("priceClassFilter").value = priceClass;
+      document.getElementById("searchInput").value = search;
+      inventoryRenderLimit = 300;
+      switchTab('inventory');
+      refreshInventoryView();
+    }
+    // Shows a pointer cursor over a clickable chart segment/bar -- the only visual cue a
+    // Chart.js canvas can give that it's interactive, since it isn't a real DOM link.
+    function chartHoverCursor(evt, elements) {
+      if (evt.native && evt.native.target) evt.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+    }
     function renderCharts(processed) {
+      const turnoverLabels = ['سريع الدوران', 'دوران طبيعي', 'بطيء الدوران', 'راكد'];
       const moveCounts = { 'سريع الدوران': 0, 'دوران طبيعي': 0, 'بطيء الدوران': 0, 'راكد': 0 };
       processed.forEach(i => { moveCounts[i.movementStatus] = (moveCounts[i.movementStatus] || 0) + 1; });
       if (doughnutChartInstance) doughnutChartInstance.destroy();
       doughnutChartInstance = new Chart(document.getElementById("doughnutChart"), {
         type: 'doughnut',
-        data: { labels: ['سريع الدوران', 'دوران طبيعي', 'بطيء الدوران', 'راكد'],
+        data: { labels: turnoverLabels,
           datasets: [{ data: [moveCounts['سريع الدوران'], moveCounts['دوران طبيعي'], moveCounts['بطيء الدوران'], moveCounts['راكد']],
             backgroundColor: ['#16a34a', '#2563eb', '#d97706', '#dc2626'] }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } },
+          onHover: chartHoverCursor,
+          onClick: (evt, elements) => { if (elements.length) drillDownToInventory({ movement: turnoverLabels[elements[0].index] }); } }
       });
+      const priceClassValues = ['C-', 'C', 'C+'];
       const priceCounts = { 'C-': 0, 'C': 0, 'C+': 0 };
       processed.forEach(i => { priceCounts[i.priceClass] = (priceCounts[i.priceClass] || 0) + 1; });
       if (priceDoughnutChartInstance) priceDoughnutChartInstance.destroy();
@@ -1691,7 +1715,9 @@
         type: 'doughnut',
         data: { labels: ['فئة C- (اقتصادي)', 'فئة C (متوسط)', 'فئة C+ (مرتفع)'],
           datasets: [{ data: [priceCounts['C-'], priceCounts['C'], priceCounts['C+']], backgroundColor: ['#9333ea', '#2563eb', '#16a34a'] }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } },
+          onHover: chartHoverCursor,
+          onClick: (evt, elements) => { if (elements.length) drillDownToInventory({ priceClass: priceClassValues[elements[0].index] }); } }
       });
       // O(n) top-5 instead of sorting the entire (possibly tens-of-thousands-row) array
       // just to read off the first 5 -- matters once real datasets get large.
@@ -1701,7 +1727,9 @@
         type: 'bar',
         data: { labels: topSold.map(i => i.displayName.length > 15 ? i.displayName.slice(0,15) + '...' : i.displayName),
           datasets: [{ label: 'المبيعات الفعلية', data: topSold.map(i => i.actualSoldQty), backgroundColor: '#2563eb' }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+          onHover: chartHoverCursor,
+          onClick: (evt, elements) => { if (elements.length) drillDownToInventory({ search: topSold[elements[0].index].displayName }); } }
       });
     }
 
@@ -1998,6 +2026,13 @@
     /* ============================================================================
        SECTION F — Event wiring (filters, sorting, modals, settings)
        ============================================================================ */
+    // Category-summary rows drill into جدول المخزون filtered to that one category (see
+    // drillDownToInventory) -- delegated once on the tbody since its rows are re-rendered
+    // wholesale on every recompute.
+    document.getElementById("categorySummaryBody").addEventListener("click", (e) => {
+      const row = e.target.closest("tr[data-category]");
+      if (row) drillDownToInventory({ category: row.dataset.category });
+    });
     document.getElementById("exportInventoryBtn").addEventListener("click", exportInventoryToExcel);
     document.getElementById("exportCategorySummaryBtn").addEventListener("click", exportCategorySummaryToExcel);
     document.getElementById("exportAuditBtn").addEventListener("click", exportAuditToExcel);
@@ -2020,57 +2055,25 @@
     });
 
     window.openSettingsModal = function() {
-      document.getElementById("ruleMainWarehouseKw").value = settings.mainWarehouseKw;
-      document.getElementById("ruleCustomerKw").value = settings.customerKw;
-      document.getElementById("ruleVendorKw").value = settings.vendorKw;
-      document.getElementById("ruleScrapKw").value = settings.scrapKw;
+      
       document.getElementById("uploadPasswordInput").value = settings.uploadPassword;
       document.getElementById("adminPasswordInput").value = settings.adminPassword;
       document.getElementById("ruleCMinusMax").value = settings.limitCMinus;
       document.getElementById("ruleCMax").value = settings.limitCMid;
-      document.getElementById("ruleTesterInput").value = "";
-      document.getElementById("ruleTesterResult").innerHTML = "";
-      document.getElementById("categoryLevelModeSelect").value = settings.categoryLevelMode;
-      document.getElementById("categoryTesterInput").dispatchEvent(new Event("input"));
+            document.getElementById("categoryLevelModeSelect").value = settings.categoryLevelMode;
+
       document.getElementById("settingsModal").classList.add("active");
     };
     window.closeSettingsModal = function() { document.getElementById("settingsModal").classList.remove("active"); };
 
-    // Live "try it yourself" tester for the move-classification rules -- lets a
-    // non-technical user paste a location string from their own file and see
-    // instantly which bucket it falls into, using the CURRENTLY TYPED (not yet
-    // saved) keyword values so they can tune them interactively before saving.
-    document.getElementById("ruleTesterInput").addEventListener("input", (e) => {
-      const testKeywords = {
-        customer: splitKeywords(document.getElementById("ruleCustomerKw").value),
-        vendor: splitKeywords(document.getElementById("ruleVendorKw").value),
-        scrap: splitKeywords(document.getElementById("ruleScrapKw").value)
-      };
-      const role = classifyLocationRole(e.target.value, testKeywords);
-      const roleLabels = { customer: '✅ عميل حقيقي (سيُحتسب بيع فعلي إن كان "إلى موقع")', vendor: '✅ مورّد حقيقي (سيُحتسب شراء فعلي إن كان "من موقع")', scrap: '🗑️ هالك/تالف', other: '🔁 غير مطابق لأي قائمة → سيُعتبر تحويل مخزني داخلي' };
-      document.getElementById("ruleTesterResult").innerText = e.target.value.trim() ? roleLabels[role] : '';
-    });
-    ["ruleCustomerKw", "ruleVendorKw", "ruleScrapKw"].forEach(id => {
-      document.getElementById(id).addEventListener("input", () => document.getElementById("ruleTesterInput").dispatchEvent(new Event("input")));
-    });
-
-    // Live "try it yourself" tester for the category-path rule -- reflects the
-    // CURRENTLY SELECTED (not yet saved) mode so the user can compare all three
-    // options against a real category path from their own file before committing.
-    function refreshCategoryTester() {
-      const path = document.getElementById("categoryTesterInput").value;
-      const mode = document.getElementById("categoryLevelModeSelect").value;
-      const result = path.trim() ? deriveCategoryLabel(path, mode) : '';
-      document.getElementById("categoryTesterResult").innerText = result ? `الناتج: "${result}"` : '';
-    }
-    document.getElementById("categoryTesterInput").addEventListener("input", refreshCategoryTester);
-    document.getElementById("categoryLevelModeSelect").addEventListener("change", refreshCategoryTester);
-    document.getElementById("saveCategoryRuleBtn").addEventListener("click", () => {
-      settings.categoryLevelMode = document.getElementById("categoryLevelModeSelect").value || DEFAULTS.categoryLevelMode;
+        // Keep the category list as a compact setting and apply it immediately when changed.
+    document.getElementById("categoryLevelModeSelect").addEventListener("change", (e) => {
+      settings.categoryLevelMode = e.target.value || DEFAULTS.categoryLevelMode;
       localStorage.setItem("category_level_mode", settings.categoryLevelMode);
       recomputeAndRenderAll();
-      alert("✅ تم حفظ قاعدة التصنيف، وأُعيد تصنيف كل الأصناف المرفوعة مسبقاً فوراً بدون الحاجة لإعادة رفع أي ملف.");
     });
+
+
 
     document.getElementById("savePasswordsBtn").addEventListener("click", () => {
       settings.uploadPassword = document.getElementById("uploadPasswordInput").value || DEFAULTS.uploadPassword;
@@ -2079,18 +2082,7 @@
       localStorage.setItem("admin_password", settings.adminPassword);
       alert("✅ تم حفظ كلمات السر.");
     });
-    document.getElementById("saveMoveRulesBtn").addEventListener("click", () => {
-      settings.mainWarehouseKw = document.getElementById("ruleMainWarehouseKw").value || DEFAULTS.mainWarehouseKw;
-      settings.customerKw = document.getElementById("ruleCustomerKw").value || DEFAULTS.customerKw;
-      settings.vendorKw = document.getElementById("ruleVendorKw").value || DEFAULTS.vendorKw;
-      settings.scrapKw = document.getElementById("ruleScrapKw").value || DEFAULTS.scrapKw;
-      localStorage.setItem("rule_main_wh", settings.mainWarehouseKw);
-      localStorage.setItem("rule_customer_kw", settings.customerKw);
-      localStorage.setItem("rule_vendor_kw", settings.vendorKw);
-      localStorage.setItem("rule_scrap_kw", settings.scrapKw);
-      recomputeAndRenderAll();
-      alert("✅ تم حفظ قواعد تصنيف الحركات وتحديث كل الحسابات.");
-    });
+    
 
     // ONE unlock gate for the entire protected cluster (credentials, price limits,
     // cloud, danger zone) -- enter the admin password once per settings-modal
