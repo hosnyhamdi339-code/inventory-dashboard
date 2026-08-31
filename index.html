@@ -130,16 +130,18 @@
     <span id="uploadStatusText" class="text-sm font-semibold text-blue-800">جاري معالجة البيانات...</span>
   </div>
   <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-    <!-- Global Controls Bar -- the 5 upload buttons that used to live here now live inside
-         الإعدادات (see MODAL 2) to keep this main view a clean, read-only analytics screen;
-         only the live business-assumption input (target margin) stays here for quick access. -->
-    <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-4">
-      <div class="flex items-center gap-3 bg-slate-50 p-2 px-3 rounded-xl border border-slate-200">
-        <label for="targetMarginInput" class="text-xs font-bold text-slate-700">هامش الربح المستهدف (%):</label>
-        <input type="number" id="targetMarginInput" value="40" min="0" max="100" class="w-16 p-1 border border-slate-300 rounded text-center text-xs font-bold focus:ring-2 focus:ring-blue-500 outline-none">
+    <!-- Global controls: business assumptions stay on the main screen. -->
+    <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-wrap items-center gap-4">
+      <div class="flex-1 min-w-[260px] bg-slate-50 p-3 px-4 rounded-xl border border-slate-200 space-y-2">
+        <div class="flex items-center justify-between gap-3">
+          <label for="targetMarginInput" class="text-xs font-bold text-slate-700">هامش الربح المستهدف (%):</label>
+          <output id="targetMarginValue" for="targetMarginInput" class="text-sm font-bold text-blue-700 num">40%</output>
+        </div>
+        <input type="range" id="targetMarginInput" value="40" min="0" max="100" step="1" dir="ltr" class="w-full accent-blue-600 cursor-pointer" aria-label="هامش الربح المستهدف">
+        <div class="flex items-center justify-between text-[10px] text-slate-400 num" dir="ltr"><span>0%</span><span>100%</span></div>
       </div>
-      
     </div>
+
     <input type="file" id="fileInputInvInitial" accept=".xlsx, .xls, .csv" class="hidden">
     <input type="file" id="fileInputInvFinal" accept=".xlsx, .xls, .csv" class="hidden">
     <input type="file" id="fileInputAudit" accept=".xlsx, .xls, .csv" class="hidden">
@@ -395,6 +397,32 @@
         </div>
       </div>
 
+      <!-- Price classes are kept inside Settings, with one horizontal row per class. -->
+      <div class="border border-purple-200 bg-purple-50/50 rounded-xl p-4 space-y-3">
+        <div>
+          <h4 class="text-sm font-bold text-purple-900">الفئات السعرية</h4>
+          <p class="text-[11px] text-purple-800 mt-1">التصنيف يعتمد على <strong>سعر البيع</strong> فقط، وليس تكلفة أو سعر الشراء.</p>
+        </div>
+        <div class="space-y-2 text-xs">
+          <div class="flex items-center gap-3 bg-white border border-purple-100 rounded-lg p-2">
+            <div class="w-32 shrink-0 text-right whitespace-nowrap"><strong class="text-purple-900">C-</strong><span class="text-slate-600"> — من 0 إلى</span></div>
+            <input type="number" id="ruleCMinusMax" min="0" step="0.01" value="300" class="flex-1 min-w-0 p-1.5 border border-slate-300 rounded-md text-center outline-none focus:ring-2 focus:ring-purple-500">
+          </div>
+          <div class="flex items-center gap-3 bg-white border border-purple-100 rounded-lg p-2">
+            <div class="w-32 shrink-0 text-right whitespace-nowrap"><strong class="text-purple-900">C</strong><span class="text-slate-600"> — <span id="priceClassCMidRange">301 إلى</span></span></div>
+            <input type="number" id="ruleCMax" min="1" step="0.01" value="599" class="flex-1 min-w-0 p-1.5 border border-slate-300 rounded-md text-center outline-none focus:ring-2 focus:ring-purple-500">
+          </div>
+          <div class="flex items-center gap-3 bg-white border border-purple-100 rounded-lg p-2">
+            <div class="w-32 shrink-0 text-right whitespace-nowrap"><strong class="text-purple-900">C+</strong><span class="text-slate-600"> — <span id="priceClassCPlusRange">600 فأكثر</span></span></div>
+            <span class="flex-1 text-slate-400 text-right">بدون حد أقصى</span>
+          </div>
+        </div>
+        <div class="flex items-center justify-between gap-3 flex-wrap">
+          <p class="text-[11px] text-slate-500">بعد الحفظ، تُعاد الفئات تلقائياً لكل الأصناف حسب سعر البيع.</p>
+          <button id="savePriceLimitsBtn" class="px-4 py-2 bg-purple-600 text-white text-xs font-bold rounded-lg hover:bg-purple-700 transition-all">حفظ الفئات السعرية</button>
+        </div>
+      </div>
+
       <!-- Category selector kept as a compact setting. -->
       <div class="space-y-2">
         <label for="categoryLevelModeSelect" class="text-xs font-bold text-slate-700 block">الفئة</label>
@@ -439,20 +467,7 @@
             <p class="text-[11px] text-slate-500">⚠️ هذه حماية بسيطة على مستوى الواجهة فقط (client-side) وليست تشفيراً حقيقياً — أي شخص يفتح "أدوات المطور" في المتصفح يمكنه تجاوزها. لا تعتمد عليها لحماية بيانات حساسة فعلاً؛ استخدم صلاحيات Supabase الحقيقية لذلك.</p>
           </div>
 
-          <div class="space-y-3 border-t border-slate-200 pt-4">
-            <h4 class="text-xs font-bold text-purple-900">حدود الفئات السعرية (Price Classes)</h4>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-              <div>
-                <label class="block text-slate-600 mb-1">الحد الأقصى لفئة C- (اقتصادي):</label>
-                <input type="number" id="ruleCMinusMax" value="300" class="w-full p-2 border border-slate-300 rounded-lg outline-none">
-              </div>
-              <div>
-                <label class="block text-slate-600 mb-1">الحد الأقصى لفئة C (متوسط):</label>
-                <input type="number" id="ruleCMax" value="550" class="w-full p-2 border border-slate-300 rounded-lg outline-none">
-              </div>
-            </div>
-            <button id="savePriceLimitsBtn" class="px-4 py-2 bg-purple-600 text-white text-xs font-bold rounded-lg hover:bg-purple-700 transition-all">حفظ حدود الفئات السعرية</button>
-          </div>
+          
 
           <div class="space-y-3 border-t border-slate-200 pt-4">
             <h4 class="text-xs font-bold text-blue-900">الربط</h4>
@@ -1053,7 +1068,8 @@
       uploadPassword: "123456",
       adminPassword: "22181",
       limitCMinus: 300,
-      limitCMid: 550,
+            limitCMid: 599,
+
       mainWarehouseKw: "WH/Stock",
       customerKw: "Customer, عملاء",
       vendorKw: "Vendor, مورد",
@@ -1073,9 +1089,21 @@
       customerKw: loadSetting("rule_customer_kw", DEFAULTS.customerKw),
       vendorKw: loadSetting("rule_vendor_kw", DEFAULTS.vendorKw),
       scrapKw: loadSetting("rule_scrap_kw", DEFAULTS.scrapKw),
-      categoryLevelMode: migrateLegacyCategoryMode(loadSetting("category_level_mode", DEFAULTS.categoryLevelMode))
+            categoryLevelMode: migrateLegacyCategoryMode(loadSetting("category_level_mode", DEFAULTS.categoryLevelMode))
     };
+
+    // Keep the two upper limits valid so the public controls always describe
+    // non-overlapping ranges: C- <= limitCMinus, C <= limitCMid, C+ > limitCMid.
+    function normalizePriceLimits() {
+      const minus = Number(settings.limitCMinus);
+      const mid = Number(settings.limitCMid);
+      settings.limitCMinus = Number.isFinite(minus) && minus >= 0 ? minus : DEFAULTS.limitCMinus;
+      settings.limitCMid = Number.isFinite(mid) && mid > settings.limitCMinus ? mid : Math.max(DEFAULTS.limitCMid, settings.limitCMinus + 1);
+    }
+    normalizePriceLimits();
+
     // Persist the migration immediately (silent, one-time, behavior-preserving -- see
+
     // migrateLegacyCategoryMode's comment) so localStorage itself is cleaned up, not just
     // the in-memory value, and the settings UI never has to know the old string ever existed.
     localStorage.setItem("category_level_mode", settings.categoryLevelMode);
@@ -2038,7 +2066,15 @@
     document.getElementById("exportAuditBtn").addEventListener("click", exportAuditToExcel);
     document.getElementById("exportMovesBtn").addEventListener("click", exportMovesToExcel);
 
-    document.getElementById("targetMarginInput").addEventListener("input", (e) => { state.targetMargin = (Number(e.target.value) || 0) / 100; recomputeAndRenderAll(); });
+        const targetMarginInput = document.getElementById("targetMarginInput");
+    const targetMarginValue = document.getElementById("targetMarginValue");
+    targetMarginInput.addEventListener("input", (e) => {
+      const percentage = Math.min(100, Math.max(0, Number(e.target.value) || 0));
+      targetMarginValue.textContent = `${percentage}%`;
+      state.targetMargin = percentage / 100;
+      recomputeAndRenderAll();
+    });
+
     document.getElementById("priceClassFilter").addEventListener("change", (e) => { state.priceClass = e.target.value; inventoryRenderLimit = 300; refreshInventoryView(); });
     document.getElementById("movementFilter").addEventListener("change", (e) => { state.movement = e.target.value; inventoryRenderLimit = 300; refreshInventoryView(); });
     document.getElementById("categoryFilter").addEventListener("change", (e) => { state.category = e.target.value; inventoryRenderLimit = 300; refreshInventoryView(); });
@@ -2054,13 +2090,31 @@
       });
     });
 
+    function formatPriceLimit(value) {
+      return Number(value).toLocaleString("en-US", { maximumFractionDigits: 2 });
+    }
+    function nextPriceBoundary(value) {
+      const n = Number(value);
+      return Number.isInteger(n) ? n + 1 : Number((n + 0.01).toFixed(2));
+    }
+    function updatePriceClassRangeLabels() {
+      const minusInput = document.getElementById("ruleCMinusMax");
+      const midInput = document.getElementById("ruleCMax");
+      const minus = Number(minusInput.value);
+      const mid = Number(midInput.value);
+      const safeMinus = Number.isFinite(minus) && minus >= 0 ? minus : settings.limitCMinus;
+      const safeMid = Number.isFinite(mid) && mid > safeMinus ? mid : Math.max(settings.limitCMid, safeMinus + 1);
+      document.getElementById("priceClassCMidRange").textContent = `${formatPriceLimit(nextPriceBoundary(safeMinus))} إلى`;
+      document.getElementById("priceClassCPlusRange").textContent = `${formatPriceLimit(nextPriceBoundary(safeMid))} فأكثر`;
+    }
+
     window.openSettingsModal = function() {
-      
       document.getElementById("uploadPasswordInput").value = settings.uploadPassword;
       document.getElementById("adminPasswordInput").value = settings.adminPassword;
       document.getElementById("ruleCMinusMax").value = settings.limitCMinus;
       document.getElementById("ruleCMax").value = settings.limitCMid;
-            document.getElementById("categoryLevelModeSelect").value = settings.categoryLevelMode;
+      document.getElementById("categoryLevelModeSelect").value = settings.categoryLevelMode;
+      updatePriceClassRangeLabels();
 
       document.getElementById("settingsModal").classList.add("active");
     };
@@ -2278,14 +2332,31 @@
       alert("✅ تم مسح جميع البيانات. يمكنك الآن رفع ملفاتك من جديد.");
     });
 
+        ["ruleCMinusMax", "ruleCMax"].forEach(id => {
+      document.getElementById(id).addEventListener("input", updatePriceClassRangeLabels);
+    });
+    updatePriceClassRangeLabels();
+
     document.getElementById("savePriceLimitsBtn").addEventListener("click", () => {
-      settings.limitCMinus = Number(document.getElementById("ruleCMinusMax").value) || DEFAULTS.limitCMinus;
-      settings.limitCMid = Number(document.getElementById("ruleCMax").value) || DEFAULTS.limitCMid;
+      const cMinus = Number(document.getElementById("ruleCMinusMax").value);
+      const cMax = Number(document.getElementById("ruleCMax").value);
+      if (!Number.isFinite(cMinus) || cMinus < 0) {
+        alert("أدخل حداً صحيحاً غير سالب للفئة C-.");
+        return;
+      }
+      if (!Number.isFinite(cMax) || cMax <= cMinus) {
+        alert("يجب أن يكون الحد الأقصى للفئة C أكبر من الحد الأقصى للفئة C-.");
+        return;
+      }
+      settings.limitCMinus = cMinus;
+      settings.limitCMid = cMax;
       localStorage.setItem("limit_c_minus", settings.limitCMinus);
       localStorage.setItem("limit_c_mid", settings.limitCMid);
+      updatePriceClassRangeLabels();
       recomputeAndRenderAll();
-      alert("✅ تم حفظ وتطبيق حدود الفئات السعرية الجديدة.");
+      alert("✅ تم حفظ وتطبيق الفئات السعرية حسب سعر البيع.");
     });
+
     document.getElementById("connectBtn").addEventListener("click", async () => {
       const url = document.getElementById("supabaseUrlInput").value.trim();
       const key = document.getElementById("supabaseKeyInput").value.trim();
