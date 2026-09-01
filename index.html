@@ -1064,22 +1064,60 @@
       for (let i = 0; i < s.length; i++) { h = ((h << 5) - h + s.charCodeAt(i)) | 0; }
       return "mv_" + (h >>> 0).toString(36);
     }
-    function salesSignature(s) {
-      return [s.date, s.pos, s.receipt, s.orderRef, s.barcode, s.product, s.qty, s.netAmount, s.sourceRow].join("|");
+    // Stable identity for one ERP sales line. It intentionally excludes sourceRow,
+    // because the same date range can appear at a different row number when the user
+    // uploads a partial period or when the ERP adds a header/cover row. The business
+    // fields below remain stable across those uploads.
+    function salesDedupeKey(s) {
+      const numKey = (v) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n.toFixed(8) : '';
+      };
+      return [
+        normalizeText(s.date),
+        normalizeMatchKey(s.pos),
+        normalizeText(s.receipt),
+        normalizeText(s.orderRef),
+        normalizeBarcode(s.barcode),
+        normalizeMatchKey(s.product),
+        numKey(s.qty),
+        numKey(s.netAmount),
+        numKey(s.unitPrice),
+        normalizeMatchKey(s.status),
+        s.isReturn ? 'return' : 'sale',
+        s.isCancelled ? 'cancelled' : 'active'
+      ].join('|');
     }
+    function salesSignature(s) { return salesDedupeKey(s); }
     function salesId(s) {
-      const text = salesSignature(s);
+      const text = salesDedupeKey(s);
       let h = 0;
       for (let i = 0; i < text.length; i++) { h = ((h << 5) - h + text.charCodeAt(i)) | 0; }
       return "sale_" + (h >>> 0).toString(36);
     }
     function mergeSalesIntoState(newSales) {
-      const existingIds = new Set(state.sales.map(s => s.id || salesId(s)));
+      // Compare canonical business keys rather than only database IDs. This also
+      // prevents duplicates against sales imported by an older build whose ID used
+      // sourceRow, and against rows loaded from Supabase on another device.
+      // When a matching row already exists, preserve its database ID on the incoming
+      // object so the following upsert updates that old row instead of creating a
+      // second cloud row with the new stable ID.
+      const existingByKey = new Map();
+      state.sales.forEach(existing => {
+        const key = salesDedupeKey(existing);
+        if (!existingByKey.has(key)) existingByKey.set(key, existing);
+      });
       let addedCount = 0, duplicateCount = 0;
       newSales.forEach(s => {
-        s.id = s.id || salesId(s);
-        if (existingIds.has(s.id)) { duplicateCount++; return; }
-        existingIds.add(s.id);
+        const key = salesDedupeKey(s);
+        const existing = existingByKey.get(key);
+        if (existing) {
+          s.id = existing.id || salesId(existing);
+          duplicateCount++;
+          return;
+        }
+        s.id = salesId(s);
+        existingByKey.set(key, s);
         state.sales.push(s);
         addedCount++;
       });
@@ -2406,8 +2444,9 @@
             const salesById = new Map();
             allSales.forEach(s => { if (!salesById.has(s.id)) salesById.set(s.id, s); });
             const salesToSync = Array.from(salesById.values()).map(s => ({
-              id: s.id, sale_date: s.date || null, point_of_sale: s.pos || null, receipt_number: s.receipt || null,
-              order_ref: s.orderRef || null, status: s.status || null, barcode: s.barcode || null, product: s.product || null,
+                            id: s.id, dedupe_key: salesDedupeKey(s), sale_date: s.date || null, point_of_sale: s.pos || null, receipt_number: s.receipt || null,
+               order_ref: s.orderRef || null, status: s.status || null, barcode: s.barcode || null, product: s.product || null,
+
               qty: s.qty, unit_price: s.unitPrice, discount_pct: s.discountPct, net_amount: s.netAmount,
               margin_amount: s.marginAmount, margin_pct: s.marginPct, unit_cost: s.unitCost, payment_amount: s.paymentAmount,
               is_return: !!s.isReturn, is_cancelled: !!s.isCancelled, source_row: s.sourceRow
