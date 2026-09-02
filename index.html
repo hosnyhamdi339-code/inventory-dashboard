@@ -73,8 +73,17 @@
     .badge.out { background-color: #fee2e2; color: #b91c1c; }
     .badge.transfer { background-color: #e0e7ff; color: #3730a3; }
     .badge.scrap { background-color: #fce7f3; color: #9d174d; }
-    .badge.unknown { background-color: #f1f5f9; color: #64748b; }
+        .badge.unknown { background-color: #f1f5f9; color: #64748b; }
     .badge.warn { background-color: #fef3c7; color: #92400e; }
+    .data-meta {
+      background: linear-gradient(135deg, #f8fafc, #ffffff);
+      border: 1px solid #e2e8f0; border-radius: 1rem; padding: .7rem 1rem;
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+      gap: .5rem 1.5rem; color: #475569; font-size: .72rem;
+    }
+    .data-meta strong { color: #0f172a; }
+    .data-meta .meta-value { font-family: 'Inter', 'Cairo', sans-serif; direction: ltr; unicode-bidi: isolate; }
+
     .loader {
       border: 3px solid #f3f3f3; border-top: 3px solid var(--primary); border-radius: 50%;
       width: 24px; height: 24px; animation: spin 1s linear infinite; flex-shrink: 0;
@@ -152,8 +161,10 @@
     <input type="file" id="fileInputSales" accept=".xlsx, .xls, .csv" multiple class="hidden">
 
     <!-- TAB 1: DASHBOARD & ANALYTICS -->
-    <div id="tab-dashboard" class="tab-content active space-y-6">
+        <div id="tab-dashboard" class="tab-content active space-y-6">
+      <div id="dataMetaDashboard" class="data-meta"><span>نطاق البيانات: <strong id="dataRangeDashboard" class="meta-value">لا توجد بيانات</strong></span><span>آخر تحديث: <strong id="lastUpdateDashboard" class="meta-value">لم يتم الرفع بعد</strong></span></div>
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+
         <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
           <div>
             <p class="text-xs font-semibold text-slate-500">إجمالي قيمة المخزون الحالية</p>
@@ -236,8 +247,10 @@
     </div>
 
     <!-- TAB 2: INVENTORY MAIN TABLE -->
-    <div id="tab-inventory" class="tab-content space-y-4">
+        <div id="tab-inventory" class="tab-content space-y-4">
+      <div id="dataMetaInventory" class="data-meta"><span>نطاق بيانات المخزون: <strong id="dataRangeInventory" class="meta-value">لا توجد بيانات</strong></span><span>آخر تحديث: <strong id="lastUpdateInventory" class="meta-value">لم يتم الرفع بعد</strong></span></div>
       <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4">
+
         <div class="flex flex-wrap items-center gap-3">
           <input type="text" id="searchInput" placeholder="بحث باسم الصنف..." class="p-2 border border-slate-300 rounded-xl text-xs w-64 focus:ring-2 focus:ring-blue-500 outline-none">
           <select id="categoryFilter" class="p-2 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none">
@@ -290,8 +303,10 @@
     </div>
 
     <!-- TAB 3: AUDIT & RECONCILIATION -->
-    <div id="tab-audit" class="tab-content space-y-4">
+        <div id="tab-audit" class="tab-content space-y-4">
+      <div id="dataMetaAudit" class="data-meta"><span>نطاق بيانات الجرد والحركات: <strong id="dataRangeAudit" class="meta-value">لا توجد بيانات</strong></span><span>آخر تحديث: <strong id="lastUpdateAudit" class="meta-value">لم يتم الرفع بعد</strong></span></div>
       <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between flex-wrap gap-2">
+
         <div>
           <h3 class="text-sm font-bold text-slate-800">تقرير المطابقة والجرد الفعلي</h3>
           <p class="text-xs text-slate-500">يقارن بين (رصيد أول + الوارد − المنصرف) والجرد الفعلي، بناءً على حركات المخزون الخاصة بموقع المخزن المدقق فقط (راجع الإعدادات)</p>
@@ -321,8 +336,10 @@
     </div>
 
     <!-- TAB 4: STOCK MOVES LOG -->
-    <div id="tab-moves" class="tab-content space-y-4">
+        <div id="tab-moves" class="tab-content space-y-4">
+      <div id="dataMetaMoves" class="data-meta"><span>نطاق تاريخ الحركات: <strong id="dataRangeMoves" class="meta-value">لا توجد بيانات</strong></span><span>آخر تحديث: <strong id="lastUpdateMoves" class="meta-value">لم يتم الرفع بعد</strong></span></div>
       <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4">
+
         <div class="flex flex-wrap items-center gap-3">
           <input type="text" id="movesSearchInput" placeholder="بحث بالصنف أو رقم المرجع..." class="p-2 border border-slate-300 rounded-xl text-xs w-64 focus:ring-2 focus:ring-blue-500 outline-none">
           <select id="moveTypeFilter" class="p-2 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none">
@@ -363,6 +380,7 @@
 
     <!-- TAB 5: SALES DASHBOARD -->
     <div id="tab-sales" class="tab-content space-y-4">
+      <div id="dataMetaSales" class="data-meta"><span>نطاق تاريخ المبيعات: <strong id="dataRangeSales" class="meta-value">لا توجد بيانات</strong></span><span>آخر تحديث: <strong id="lastUpdateSales" class="meta-value">لم يتم الرفع بعد</strong></span></div>
       <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4">
         <div>
           <h3 class="text-sm font-bold text-slate-800">لوحة المبيعات</h3>
@@ -1391,33 +1409,18 @@
       search: '', category: '', movement: '', priceClass: '',
       sortKey: 'stockValue', sortDir: -1,
       movesSearch: '', moveType: '',
-      salesSearch: '', salesPos: '',
+            salesSearch: '', salesPos: '',
+      lastUpdatedAt: loadSetting("data_last_updated_at", ""),
 
-      // The seed rows below are DEMO data only, shown so the dashboard isn't blank on
-      // first open. isDemoData=true marks them as such; the moment the user uploads
-      // any real file (see evictDemoDataIfNeeded), they are wiped out completely --
-      // real and fictitious figures must never coexist in a financial dashboard.
-      isDemoData: true,
-      items: [
-        { key: 'name:شاشة سامسونج 65 بوصة 4k', name: "شاشة سامسونج 65 بوصة 4K", cat: "إلكترونيات", cost: 1800, price: 2800, qtyInitial: 20, qtyFinal: 15, soldYr: 85, auditQty: 15, auditDate: "2026-08-20" },
-        { key: 'name:ثلاجة إل جي 18 قدم نوفرست', name: "ثلاجة إل جي 18 قدم نوفرست", cat: "أجهزة منزلية", cost: 2400, price: 3600, qtyInitial: 10, qtyFinal: 8, soldYr: 32, auditQty: 8, auditDate: "2026-08-20" },
-        { key: 'name:غسالة توشيبا 7 كيلو أوتوماتيك', name: "غسالة توشيبا 7 كيلو أوتوماتيك", cat: "أجهزة منزلية", cost: 1100, price: 1650, qtyInitial: 15, qtyFinal: 12, soldYr: 45, auditQty: 11, auditDate: "2026-08-20" },
-        { key: 'name:ماكينة قهوة ديلونجي ديديكا', name: "ماكينة قهوة ديلونجي ديديكا", cat: "أجهزة منزلية", cost: 450, price: 750, qtyInitial: 40, qtyFinal: 35, soldYr: 120, auditQty: 35, auditDate: "2026-08-20" },
-        { key: 'name:سماعة أبل ايربودز برو 2', name: "سماعة أبل ايربودز برو 2", cat: "إلكترونيات", cost: 650, price: 950, qtyInitial: 50, qtyFinal: 42, soldYr: 210, auditQty: 42, auditDate: "2026-08-20" },
-        { key: 'name:خلاط مولينكس 500 واط مع ملحقات', name: "خلاط مولينكس 500 واط مع ملحقات", cat: "أدوات مطبخ", cost: 120, price: 220, qtyInitial: 80, qtyFinal: 75, soldYr: 180, auditQty: 75, auditDate: "2026-08-20" },
-        { key: 'name:قلاية هوائية فيليبس xl', name: "قلاية هوائية فيليبس XL", cat: "أدوات مطبخ", cost: 380, price: 620, qtyInitial: 30, qtyFinal: 22, soldYr: 140, auditQty: 22, auditDate: "2026-08-20" },
-        { key: 'name:مكواة بخار تيفال 2000 واط', name: "مكواة بخار تيفال 2000 واط", cat: "أجهزة منزلية", cost: 95, price: 160, qtyInitial: 60, qtyFinal: 58, soldYr: 25, auditQty: 58, auditDate: "2026-08-20" },
-        { key: 'name:مروحة سقف توشيبا 56 بوصة', name: "مروحة سقف توشيبا 56 بوصة", cat: "أجهزة منزلية", cost: 180, price: 290, qtyInitial: 25, qtyFinal: 24, soldYr: 8, auditQty: 24, auditDate: "2026-08-20" },
-        { key: 'name:تلفزيون سوني 55 بوصة oled', name: "تلفزيون سوني 55 بوصة OLED", cat: "إلكترونيات", cost: 3200, price: 4800, qtyInitial: 5, qtyFinal: 4, soldYr: 18, auditQty: 4, auditDate: "2026-08-20" }
-      ],
-      moves: [
-        { date: "2026-08-01", reference: "WH/IN/00101", product: "شاشة سامسونج 65 بوصة 4K", from_loc: "Vendors/موردين", to_loc: "WH/Stock", qty: 20, uom: "قطعة", moveType: "purchase" },
-        { date: "2026-08-05", reference: "WH/OUT/00342", product: "شاشة سامسونج 65 بوصة 4K", from_loc: "WH/Stock", to_loc: "Customers/عملاء", qty: 5, uom: "قطعة", moveType: "sale" },
-        { date: "2026-08-10", reference: "WH/OUT/00389", product: "غسالة توشيبا 7 كيلو أوتوماتيك", from_loc: "WH/Stock", to_loc: "Customers/عملاء", qty: 4, uom: "قطعة", moveType: "sale" },
-        { date: "2026-08-12", reference: "WH/IN/00115", product: "سماعة أبل ايربودز برو 2", from_loc: "Vendors/موردين", to_loc: "WH/Stock", qty: 30, uom: "قطعة", moveType: "purchase" },
-                { date: "2026-08-15", reference: "WH/OUT/00412", product: "سماعة أبل ايربودز برو 2", from_loc: "WH/Stock", to_loc: "Customers/عملاء", qty: 38, uom: "قطعة", moveType: "sale" }
-      ],
+            // Start with a completely empty local dataset. Real inventory, moves, and
+
+      // sales are populated only by user uploads or by successful Supabase loading.
+      // This prevents sample figures from being mistaken for the user's data.
+      isDemoData: false,
+      items: [],
+      moves: [],
       sales: [],
+
       // Manual reconciliation for moves-file product names that don't match any
       // inventory item by name (see the "X% unmatched" data-quality note). Keyed by
       // normalizeMatchKey(rawProductNameFromMovesFile). Value is either
@@ -1426,10 +1429,62 @@
       // supply also tracked in the moves log but never in the valuation file), so stop
       // flagging it. Persisted locally so this reconciliation work survives a reload
       // and doesn't need repeating on every re-upload of the same moves file.
-      productAliases: loadProductAliases()
+            productAliases: loadProductAliases()
     };
 
+    function markDataUpdated(timestamp) {
+      const iso = timestamp || new Date().toISOString();
+      state.lastUpdatedAt = iso;
+      localStorage.setItem("data_last_updated_at", iso);
+    }
+    function parseDataDate(value) {
+      const raw = formatDateValue(value);
+      if (!raw) return null;
+      const iso = raw.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+      let date = null;
+      if (iso) date = new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+      else {
+        const parsed = new Date(raw);
+        if (!Number.isNaN(parsed.getTime())) date = parsed;
+      }
+      if (!date || Number.isNaN(date.getTime())) return null;
+      return { date, label: formatJSDateForDisplay(date).slice(0, 10) };
+    }
+    function getDataDateValues(scope) {
+      const itemDates = state.items.map(i => i.auditDate).filter(Boolean);
+      const moveDates = state.moves.map(m => m.date).filter(Boolean);
+      const salesDates = state.sales.map(s => s.date).filter(Boolean);
+      if (scope === 'moves') return moveDates;
+      if (scope === 'sales') return salesDates;
+      if (scope === 'audit') return itemDates.concat(moveDates);
+      if (scope === 'inventory') return itemDates.concat(moveDates);
+      return itemDates.concat(moveDates, salesDates);
+    }
+    function getDataDateRange(scope) {
+      const parsed = getDataDateValues(scope).map(parseDataDate).filter(Boolean).sort((a, b) => a.date - b.date);
+      if (!parsed.length) return null;
+      return { start: parsed[0].label, end: parsed[parsed.length - 1].label, latest: parsed[parsed.length - 1].label };
+    }
+    function formatLastUpdated(value) {
+      const d = value ? new Date(value) : null;
+      return d && !Number.isNaN(d.getTime()) ? formatJSDateForDisplay(d) : 'غير متاح';
+    }
+    function renderDataMeta() {
+      const configs = [
+        ['Dashboard', 'dashboard'], ['Inventory', 'inventory'], ['Audit', 'audit'], ['Moves', 'moves'], ['Sales', 'sales']
+      ];
+      configs.forEach(([suffix, scope]) => {
+        const range = getDataDateRange(scope);
+        const rangeEl = document.getElementById(`dataRange${suffix}`);
+        const updateEl = document.getElementById(`lastUpdate${suffix}`);
+        if (!rangeEl || !updateEl) return;
+        rangeEl.textContent = range ? (range.start === range.end ? range.start : `${range.start} — ${range.end}`) : 'لا توجد بيانات';
+        updateEl.textContent = state.lastUpdatedAt ? formatLastUpdated(state.lastUpdatedAt) : 'لم يتم الرفع بعد';
+      });
+    }
+
     function loadProductAliases() {
+
       try { return JSON.parse(localStorage.getItem("product_aliases") || "{}"); } catch (e) { return {}; }
     }
     function saveProductAliases() {
@@ -1637,6 +1692,9 @@
         const { data: cloudSales, error: salesErr } = await selectAllRows("sales_lines");
         if (!salesErr && cloudSales && cloudSales.length > 0) { state.sales = cloudSales.map(normalizeCloudSale); state.isDemoData = false; }
         else if (salesErr) console.warn("sales_lines load error:", salesErr.message);
+        if ((cloudItems && cloudItems.length) || (cloudMoves && cloudMoves.length) || (cloudSales && cloudSales.length)) {
+          if (!state.lastUpdatedAt) markDataUpdated();
+        }
         recomputeAndRenderAll();
         renderCloudStatus(itemsErr, movesErr, salesErr);
         return { ok: !itemsErr && !movesErr && !salesErr, itemsErr, movesErr, salesErr };
@@ -1829,8 +1887,10 @@
     // Heavy path: recomputes all financial figures from scratch. Call this ONLY when
     // state.items / state.moves / settings / targetMargin actually changed.
     function recomputeAndRenderAll() {
-      const { processed, notes, unmatchedStats } = processInventoryData();
+            const { processed, notes, unmatchedStats } = processInventoryData();
+      renderDataMeta();
       cachedProcessed = processed;
+
       lastDataQualityNotes = notes;
       lastUnmatchedStats = unmatchedStats;
       fuzzyItemIndex = buildFuzzyItemIndex(processed);
@@ -1841,9 +1901,7 @@
       } else {
         unmatchedBtn.classList.add("hidden");
       }
-      if (state.isDemoData) {
-        notes.unshift('📊 الأرقام المعروضة الآن هي <strong>بيانات تجريبية للعرض فقط</strong> (ليست بياناتك الحقيقية) — ستُحذف تلقائياً بمجرد رفع أول ملف حقيقي من الأزرار أعلاه.');
-      }
+      
       showDataQualityBanner(notes);
 
       const totalVal = processed.reduce((sum, i) => sum + i.stockValue, 0);
@@ -2399,6 +2457,7 @@
             setUploadLoading(true, `⏳ جاري رفع ${movesToSync.length.toLocaleString('en-US')} حركة للسحابة...`);
             movesSyncResult = await batchUpsert("stock_moves", movesToSync);
           }
+                    markDataUpdated();
           recomputeAndRenderAll();
           let movesMsg = (demoWasCleared ? `🧹 تم حذف بيانات العرض التجريبية تلقائياً لأن هذا أول رفع حقيقي.\n\n` : '') +
             `✅ تمت معالجة ملف/ملفات الحركات محلياً بنجاح.\nإجمالي الصفوف المقروءة: ${summary.total}\nتم التعرف على: ${summary.mapped} حركة\nتمت إضافتها لسجل الحركات: ${addedCount} حركة جديدة\nتم تجاهلها كتكرار لحركة موجودة مسبقاً: ${duplicateCount}\nتم تجاهل ${summary.skippedEmpty} صف فارغ (بدون اسم صنف).\n\n⚠️ ملاحظة: هذا الرفع يُضيف إلى سجل الحركات المتراكم ولا يستبدله (ليس لقطة). لحذف حركات قديمة أو غير صحيحة استخدم "مسح جميع البيانات" من الإعدادات، أو راجع مصدر البيانات في Supabase مباشرة.`;
@@ -2454,6 +2513,7 @@
             setUploadLoading(true, `⏳ جاري رفع ${salesToSync.length.toLocaleString('en-US')} سطر مبيعات للسحابة...`);
             salesSyncResult = await batchUpsert('sales_lines', salesToSync);
           }
+          markDataUpdated();
           recomputeAndRenderAll();
           let salesMsg = (demoWasCleared ? `🧹 تم حذف بيانات العرض التجريبية تلقائياً لأن هذا أول رفع حقيقي.\n\n` : '') +
             `✅ تمت معالجة ملف المبيعات محلياً بنجاح.\nإجمالي الصفوف المقروءة: ${summary.total}\nتم التعرف على: ${summary.mapped} سطر\nتمت إضافتها: ${addedCount} سطر جديد\nتم تجاهلها كتكرار: ${duplicateCount} سطر\nالمرتجعات المكتشفة: ${summary.returns}\nالصفوف الملغاة المستبعدة من الحساب: ${summary.cancelled}`;
@@ -2521,6 +2581,7 @@
             setUploadLoading(true, `⏳ جاري حفظ الأصناف بالسحابة...`);
             itemsSyncResult = await batchUpsert("inventory_items", state.items.map(it => ({ ...it, id: (it.key || '').replace(/[^a-zA-Z0-9_]/g, '_') })));
           }
+                    markDataUpdated();
           recomputeAndRenderAll();
           let msg = (demoWasCleared ? `🧹 تم حذف بيانات العرض التجريبية تلقائياً لأن هذا أول رفع حقيقي.\n\n` : '') +
             `✅ تمت معالجة الملف محلياً بنجاح.\nإجمالي الصفوف: ${parsed.stats.total}\nتم استيراد: ${parsed.stats.mapped} صف`;
@@ -2826,10 +2887,12 @@
 
             state.items = [];
       state.moves = [];
-      state.sales = [];
+            state.sales = [];
       state.isDemoData = false; // explicit empty state, not the demo -- don't re-seed
+      markDataUpdated();
 
       recomputeAndRenderAll();
+
       closeSettingsModal();
       alert("✅ تم مسح جميع البيانات. يمكنك الآن رفع ملفاتك من جديد.");
     });
