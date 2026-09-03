@@ -1687,23 +1687,37 @@
             return { ok: false, itemsErr: null, movesErr: null, salesErr: null };
 
     }
-    // Supabase (like PostgREST generally) caps an unpaginated select at 1000 rows by
-    // default -- with a real dataset of 33,000+ items and 50,000+ moves, a plain
-    // .select("*") would silently return only the first 1000 rows with NO error,
-    // meaning the dashboard would quietly show a fraction of the real inventory after
-    // every reload. This pages through with .range() until a page comes back short.
-    async function selectAllRows(tableName) {
+    // Robust paginated fetch:
+    //  - orders by a stable unique column فالترقيم بيكون ثابت عبر الصفحات (بدون
+    //    ORDER BY صريح، Postgres مايضمنش ثبات الترتيب بين طلبات LIMIT/OFFSET المتتالية،
+    //    وده كان ممكن يسبب تخطي/تكرار صفوف مع جداول كبيرة).
+    //  - يتقدّم بعدد الصفوف الفعلي المُرجَع (data.length) وليس PAGE_SIZE الثابت، فما
+    //    بيقفش مبكراً لو إعداد "Max Rows" في Supabase أقل من 1000 (كان بيسبب توقف
+    //    الترقيم بصمت تام قبل ما يجيب باقي الجدول).
+    //  - بيعيد المحاولة 3 مرات لأي صفحة فشلت (network blip / rate limit) قبل الاستسلام،
+    //    ولو استسلم برضه بيرجّع البيانات اللي جمّعها فعلاً (partial:true) بدل ما يرميها
+    //    كلها -- ده كان أخطر باج: مع جدول كبير (عشرات الصفحات)، فشل صفحة واحدة عابرة
+    //    كان يمسح كل البيانات المُحمَّلة فعلاً ويرجّع الشاشة فاضية.
+    async function selectAllRows(tableName, orderColumn = "id", onProgress) {
       const PAGE_SIZE = 1000;
       let all = [], from = 0;
       while (true) {
-        const { data, error } = await supabaseClient.from(tableName).select("*").range(from, from + PAGE_SIZE - 1);
-        if (error) return { data: all, error };
+        let data = null, error = null;
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          const res = await supabaseClient.from(tableName).select("*")
+            .order(orderColumn, { ascending: true })
+            .range(from, from + PAGE_SIZE - 1);
+          if (!res.error) { data = res.data; error = null; break; }
+          error = res.error;
+          if (attempt < 3) await new Promise(r => setTimeout(r, 500 * attempt)); // backoff: 0.5s, 1s
+        }
+        if (error) return { data: all, error, partial: all.length > 0 };
         if (!data || data.length === 0) break;
         all = all.concat(data);
-        if (data.length < PAGE_SIZE) break;
-        from += PAGE_SIZE;
+        if (onProgress) onProgress(all.length);
+        from += data.length;
       }
-      return { data: all, error: null };
+      return { data: all, error: null, partial: false };
     }
     // Renders the honest current cloud status -- called after connecting AND after every
     // upload, so opening الإعدادات at any point shows the real, current truth rather than
@@ -1728,30 +1742,45 @@
     }
 
     async function loadCloudData() {
-            if (!supabaseClient) return { ok: false, itemsErr: null, movesErr: null, salesErr: null };
-
+      if (!supabaseClient) return { ok: false, itemsErr: null, movesErr: null, salesErr: null };
       try {
         setUploadLoading(true, "جاري استدعاء البيانات من السحابة (Supabase)...");
-        const { data: cloudItems, error: itemsErr } = await selectAllRows("inventory_items");
-                if (!itemsErr && cloudItems && cloudItems.length > 0) { state.items = cloudItems.map(i => ({ ...i, barcode: normalizeBarcode(i.barcode) })); state.isDemoData = false; }
+        // الجداول الثلاثة بتتحمّل بالتوازي (مش بالتتابع) -- مع بيانات كبيرة ده بيقلل
+        // وقت الانتظار الكلي بشكل كبير (كان زمن التحميل = مجموع أوقات الجداول الثلاثة).
+        const progressCounts = { items: 0, moves: 0, sales: 0 };
+        const reportProgress = () => setUploadLoading(true,
+          `⏳ جاري تحميل البيانات من السحابة — أصناف: ${progressCounts.items.toLocaleString('en-US')} | حركات: ${progressCounts.moves.toLocaleString('en-US')} | مبيعات: ${progressCounts.sales.toLocaleString('en-US')}`);
+        const [itemsRes, movesRes, salesRes] = await Promise.all([
+          selectAllRows("inventory_items", "id", n => { progressCounts.items = n; reportProgress(); }),
+          selectAllRows("stock_moves", "id", n => { progressCounts.moves = n; reportProgress(); }),
+          selectAllRows("sales_lines", "id", n => { progressCounts.sales = n; reportProgress(); })
+        ]);
+        const { data: cloudItems, error: itemsErr } = itemsRes;
+        const { data: cloudMoves, error: movesErr } = movesRes;
+        const { data: cloudSales, error: salesErr } = salesRes;
 
-        else if (itemsErr) console.warn("inventory_items load error:", itemsErr.message);
-                const { data: cloudMoves, error: movesErr } = await selectAllRows("stock_moves");
+        // CRITICAL FIX: استخدم أي صفوف تم تحميلها فعلاً حتى لو حصل خطأ في صفحة لاحقة
+        // (itemsRes.partial / movesRes.partial / salesRes.partial) بدل ما نرمي الجدول
+        // كله لمجرد إن الترقيم متكملش بنظافة. مع جداول كبيرة (صفحات كتير)، فشل عابر
+        // واحد كان يمسح تحميل ناجح لآلاف الصفوف ويسيب اللوحة فاضية -- بالظبط عرَض
+        // "مش عارف أستدعي الداتا مع حجم كبير". الخطأ نفسه لسه بيتعرض تحت عبر
+        // renderCloudStatus عشان محدش يفوّته.
+        if (cloudItems && cloudItems.length > 0) { state.items = cloudItems.map(i => ({ ...i, barcode: normalizeBarcode(i.barcode) })); state.isDemoData = false; }
+        if (itemsErr) console.warn("inventory_items load error:", itemsErr.message, itemsRes.partial ? `(تم تحميل ${cloudItems.length} صف قبل الخطأ)` : '');
         // The cloud column is snake_case "move_type" (see the sync-side comment above) --
         // map it back to the in-memory "moveType" field every other function in this file
         // already expects, so nothing downstream (filters, KPIs, exports) needs to change.
-        if (!movesErr && cloudMoves && cloudMoves.length > 0) { state.moves = cloudMoves.map(m => ({ ...m, moveType: m.move_type })); state.isDemoData = false; }
-        else if (movesErr) console.warn("stock_moves load error:", movesErr.message);
-        const { data: cloudSales, error: salesErr } = await selectAllRows("sales_lines");
-        if (!salesErr && cloudSales && cloudSales.length > 0) { state.sales = cloudSales.map(normalizeCloudSale); state.isDemoData = false; }
-        else if (salesErr) console.warn("sales_lines load error:", salesErr.message);
+        if (cloudMoves && cloudMoves.length > 0) { state.moves = cloudMoves.map(m => ({ ...m, moveType: m.move_type })); state.isDemoData = false; }
+        if (movesErr) console.warn("stock_moves load error:", movesErr.message, movesRes.partial ? `(تم تحميل ${cloudMoves.length} صف قبل الخطأ)` : '');
+        if (cloudSales && cloudSales.length > 0) { state.sales = cloudSales.map(normalizeCloudSale); state.isDemoData = false; }
+        if (salesErr) console.warn("sales_lines load error:", salesErr.message, salesRes.partial ? `(تم تحميل ${cloudSales.length} صف قبل الخطأ)` : '');
+
         if ((cloudItems && cloudItems.length) || (cloudMoves && cloudMoves.length) || (cloudSales && cloudSales.length)) {
           if (!state.lastUpdatedAt) markDataUpdated();
         }
         recomputeAndRenderAll();
         renderCloudStatus(itemsErr, movesErr, salesErr);
         return { ok: !itemsErr && !movesErr && !salesErr, itemsErr, movesErr, salesErr };
-
       } catch (err) {
         console.warn("Cloud load failed, using local cache:", err);
         document.getElementById("cloudStatusText").innerText = "⚠️ فشلت المزامنة (خطأ غير متوقع): " + err.message + "\nيتم العمل بالبيانات المحلية فقط.";
@@ -2448,7 +2477,7 @@
         if (type === 'moves') {
           let allMoves = [], summary = { total: 0, mapped: 0, skippedEmpty: 0 }, aborted = false, sharedCols = null;
           for (const file of fileInput.files) {
-            setUploadLoading(true, `⏳ جاري قراءة ${file.name}...`);
+            setUploadLoading(true, `⏳ جاري قراءة ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)...`);
             let rows = await parseExcelFile(file);
             let cols = sharedCols;
             if (!cols) {
@@ -2535,7 +2564,7 @@
         } else if (type === 'sales') {
           let allSales = [], summary = { total: 0, mapped: 0, skippedEmpty: 0, missingBarcode: 0, returns: 0, cancelled: 0, filledDown: 0 }, aborted = false, sharedCols = null;
           for (const file of fileInput.files) {
-            setUploadLoading(true, `⏳ جاري قراءة ${file.name}...`);
+            setUploadLoading(true, `⏳ جاري قراءة ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)...`);
             const rows = await parseExcelFile(file);
             let cols = sharedCols;
             if (!cols) {
@@ -2582,6 +2611,9 @@
           alert(salesMsg);
         } else {
           const file = fileInput.files[0];
+          if (file.size > 20 * 1024 * 1024) {
+            setUploadLoading(true, `⏳ الملف كبير (${(file.size/1024/1024).toFixed(1)} MB) — القراءة والتحليل قد تستغرق عدة ثوانٍ ولن تستجيب الصفحة خلالها، هذا طبيعي وليس تعليقاً للنظام...`);
+          }
 
           let rows = await parseExcelFile(file);
           const headerIndex = buildHeaderIndex(rows);
