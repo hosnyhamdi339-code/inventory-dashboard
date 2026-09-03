@@ -1077,7 +1077,11 @@
         const end = Math.min(start + chunkSize, preparedRows.length);
         setUploadLoading(true, `⏳ جاري تحليل المبيعات: ${end.toLocaleString('en-US')} من ${preparedRows.length.toLocaleString('en-US')} صف...`);
         const part = extractSalesRows(preparedRows.slice(start, end), cols, { skipFillDown: true, rowOffset: start });
-        combined.sales.push(...part.sales);
+        // concat, NOT push(...part.sales) -- spreading a large array as individual call
+        // arguments blows the JS call stack ("Maximum call stack size exceeded") once the
+        // array gets into the tens of thousands, which real POS exports easily reach.
+        // concat() handles arrays of any size natively without that limit.
+        combined.sales = combined.sales.concat(part.sales);
         Object.keys(combined.stats).forEach(k => { if (typeof part.stats[k] === 'number') combined.stats[k] += part.stats[k]; });
         if (start + chunkSize < preparedRows.length) await new Promise(resolve => setTimeout(resolve, 0));
       }
@@ -1866,7 +1870,16 @@
     function getSalesPeriodDays(sales) {
       const timestamps = sales.map(s => Date.parse(s.date)).filter(Number.isFinite);
       if (timestamps.length < 2) return timestamps.length === 1 ? 1 : 365;
-      const min = Math.min(...timestamps), max = Math.max(...timestamps);
+      // Manual min/max loop instead of Math.min(...timestamps)/Math.max(...timestamps) --
+      // spreading tens of thousands of sales timestamps as individual call arguments is
+      // exactly what throws "Maximum call stack size exceeded" on a real-size sales file.
+      // This runs in O(n) with no argument-count limit regardless of array size.
+      let min = Infinity, max = -Infinity;
+      for (let i = 0; i < timestamps.length; i++) {
+        const t = timestamps[i];
+        if (t < min) min = t;
+        if (t > max) max = t;
+      }
       return Math.max(1, Math.floor((max - min) / 86400000) + 1);
     }
     function aggregateSalesByBarcode(sales) {
@@ -2660,7 +2673,9 @@
               sharedCols = cols;
             }
             const extracted = await extractSalesRowsInChunks(rows, cols);
-            allSales.push(...extracted.sales);
+            // Same fix as above: concat instead of push(...) so a large file's full
+            // extracted sales array never gets spread into individual call arguments.
+            allSales = allSales.concat(extracted.sales);
             Object.keys(summary).forEach(k => { if (typeof extracted.stats[k] === 'number') summary[k] += extracted.stats[k]; });
           }
           if (aborted) { alert("تم إلغاء رفع ملف المبيعات."); return; }
