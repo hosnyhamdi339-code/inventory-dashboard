@@ -1826,6 +1826,57 @@
       if (error.code) parts.push(`(code: ${error.code})`);
       return parts.join(" — ") || JSON.stringify(error);
     }
+    // SELF-HEALING SCHEMA MISMATCH HANDLING.
+    // Root cause class: the app's payloads are a fixed, hand-written column list per table
+    // (see the comments above movesToSync/salesToSync), but the ACTUAL Supabase table can lag
+    // behind that list (columns never added, or added with different names/casing). PostgREST
+    // reports this as PGRST204 "Could not find the 'X' column of 'table' in the schema cache" --
+    // and it reports exactly ONE missing column per failed request, so fixing them one at a time
+    // by hand (dedupe_key, then extra_data, then the next one...) never terminates on its own.
+    // This block detects that specific error shape, strips the offending column from the batch,
+    // and retries automatically -- for ANY column, on ANY of the 3 tables, without waiting for
+    // the user to paste back a new screenshot each time. It does NOT touch the database schema
+    // itself (see buildAlterTableSql below for why that stays a manual, reviewed SQL step).
+    const missingColumnsByTable = {}; // tableName -> Set<string>, remembered for the rest of this browser tab's session
+    function getMissingColumnsSet(tableName) {
+      if (!missingColumnsByTable[tableName]) missingColumnsByTable[tableName] = new Set();
+      return missingColumnsByTable[tableName];
+    }
+    // PostgREST's exact wording for this error class (verified against both the 'dedupe_key'
+    // and 'extra_data' failures reported in this project): "Could not find the 'X' column of
+    // 'table_name' in the schema cache". Matched loosely (no anchors) so minor wording/locale
+    // differences across PostgREST versions don't silently stop being detected.
+    function extractMissingColumnFromError(error) {
+      const msg = (error && (error.message || error.details || '')) || '';
+      const m = msg.match(/Could not find the '([^']+)' column/i);
+      return m ? m[1] : null;
+    }
+    function stripColumns(row, columnsToStrip) {
+      if (!columnsToStrip.size) return row;
+      const out = {};
+      for (const k in row) { if (!columnsToStrip.has(k)) out[k] = row[k]; }
+      return out;
+    }
+    // Best-effort Postgres type guess purely to make the ALTER TABLE hint below runnable
+    // as-is for the common cases (dates, booleans, numeric amounts, jsonb blobs). This is a
+    // convenience default, not a schema authority -- the user should still sanity-check the
+    // type against how the column is actually used before running it on a production table.
+    function guessPgTypeForColumn(col) {
+      const c = col.toLowerCase();
+      if (c === 'id' || c.endsWith('_id')) return 'text';
+      if (c.startsWith('is_') || c.startsWith('has_')) return 'boolean';
+      if (c.endsWith('_at')) return 'timestamptz';
+      if (c === 'date' || c.endsWith('_date')) return 'date';
+      if (c.endsWith('_data') || c.endsWith('_json') || c.endsWith('_meta')) return 'jsonb';
+      if (c.endsWith('_row') || c.endsWith('_count') || c === 'qty' || c.endsWith('_qty')) return 'integer';
+      if (/(price|amount|cost|pct|percent|total|value|rate|margin)/.test(c)) return 'numeric';
+      return 'text';
+    }
+    function buildAlterTableSql(tableName, columns) {
+      if (!columns.length) return '';
+      const lines = columns.map(col => `ALTER TABLE public.${tableName} ADD COLUMN IF NOT EXISTS ${col} ${guessPgTypeForColumn(col)};`);
+      return lines.join('\n');
+    }
     // CRITICAL: this function's return value is the ONLY signal callers have that a cloud
     // sync actually worked. It used to only console.error() on failure and return nothing --
     // every caller treated that as silent success, so the app would tell the user "تم الرفع
@@ -1834,19 +1885,33 @@
     // swallowing this error -- always return {ok, syncedCount, totalCount, error} and make
     // every caller check .ok before claiming success to the user.
     async function batchUpsert(tableName, dataArray) {
-      if (!supabaseClient || !dataArray.length) return { ok: true, syncedCount: 0, totalCount: 0, error: null };
+      if (!supabaseClient || !dataArray.length) return { ok: true, syncedCount: 0, totalCount: 0, error: null, skippedColumns: [] };
       const CHUNK_SIZE = 500;
       let syncedCount = 0;
+      const knownMissing = getMissingColumnsSet(tableName);
+      const MAX_NEW_MISSING_COLUMNS = 25; // circuit breaker: stop auto-retrying if the schema is wildly out of sync
       for (let i = 0; i < dataArray.length; i += CHUNK_SIZE) {
-        const chunk = dataArray.slice(i, i + CHUNK_SIZE);
-        const { error } = await supabaseClient.from(tableName).upsert(chunk);
-        if (error) {
+        let chunk = dataArray.slice(i, i + CHUNK_SIZE).map(row => stripColumns(row, knownMissing));
+        // A single chunk can retry multiple times if it turns out to reference several
+        // different missing columns (each attempt surfaces at most one, per PostgREST's
+        // error format) -- bounded so a genuinely different failure (RLS, bad table name,
+        // network) still surfaces to the user instead of looping forever.
+        for (let attempt = 0; attempt < MAX_NEW_MISSING_COLUMNS; attempt++) {
+          const { error } = await supabaseClient.from(tableName).upsert(chunk);
+          if (!error) break;
+          const missingCol = error.code === 'PGRST204' ? extractMissingColumnFromError(error) : null;
+          if (missingCol && !knownMissing.has(missingCol)) {
+            console.warn(`[${tableName}] العمود '${missingCol}' غير موجود في Supabase -- تم استبعاده تلقائياً وإعادة المحاولة.`);
+            knownMissing.add(missingCol);
+            chunk = chunk.map(row => stripColumns(row, knownMissing));
+            continue; // retry this same chunk without the newly-discovered missing column
+          }
           console.error(`Error uploading to ${tableName}:`, error);
-          return { ok: false, syncedCount, totalCount: dataArray.length, error: formatSupabaseError(error) };
+          return { ok: false, syncedCount, totalCount: dataArray.length, error: formatSupabaseError(error), skippedColumns: Array.from(knownMissing) };
         }
         syncedCount += chunk.length;
       }
-      return { ok: true, syncedCount, totalCount: dataArray.length, error: null };
+      return { ok: true, syncedCount, totalCount: dataArray.length, error: null, skippedColumns: Array.from(knownMissing) };
     }
 
         /* ============================================================================
@@ -2680,6 +2745,9 @@
           if (movesSyncResult) {
             if (movesSyncResult.ok) {
               movesMsg += `\n\n☁️ تم رفع ${movesSyncResult.syncedCount.toLocaleString('en-US')} حركة إلى قاعدة البيانات السحابية (Supabase) بنجاح.`;
+              if (movesSyncResult.skippedColumns && movesSyncResult.skippedColumns.length) {
+                movesMsg += `\n\n⚠️ ملاحظة: جدول stock_moves في Supabase ناقص هذه الأعمدة، فتم رفع باقي البيانات بدونها تلقائياً بدون فشل الرفع: ${movesSyncResult.skippedColumns.join(', ')}.\nلحفظها بشكل دائم بدل استبعادها في كل مرة، نفّذ مرة واحدة في SQL Editor بتاع Supabase:\n${buildAlterTableSql('stock_moves', movesSyncResult.skippedColumns)}`;
+              }
             } else {
               movesMsg += `\n\n❌ فشل رفع الحركات إلى قاعدة البيانات السحابية!\nتم رفع ${movesSyncResult.syncedCount.toLocaleString('en-US')} من أصل ${movesSyncResult.totalCount.toLocaleString('en-US')} فقط قبل توقف العملية بسبب خطأ.\nرسالة الخطأ من Supabase: ${movesSyncResult.error}\n\n⚠️ هذه الحركات محفوظة في هذا المتصفح فقط الآن ولن تظهر على أي جهاز آخر ولا تُحسب "مؤمّنة" حتى يُحل هذا الخطأ. الأسباب الشائعة: جدول stock_moves غير موجود بنفس الاسم، أو أعمدة الجدول لا تطابق أعمدة البيانات المرفوعة، أو سياسة RLS في Supabase لا تسمح بالكتابة (upsert) بمفتاح anon.`;
             }
@@ -2741,7 +2809,12 @@
           if (summary.missingBarcode > 0) salesMsg += `\n⚠️ ${summary.missingBarcode} سطر بدون باركود — محفوظ في التقرير لكن لن يُربط بصنف مخزون.`;
           if (summary.skippedEmpty > 0) salesMsg += `\n⚠️ تم تجاهل ${summary.skippedEmpty} صف فارغ بدون باركود أو اسم صنف.`;
           if (salesSyncResult) {
-            if (salesSyncResult.ok) salesMsg += `\n\n☁️ تم رفع ${salesSyncResult.syncedCount.toLocaleString('en-US')} سطر مبيعات إلى Supabase بنجاح.`;
+            if (salesSyncResult.ok) {
+              salesMsg += `\n\n☁️ تم رفع ${salesSyncResult.syncedCount.toLocaleString('en-US')} سطر مبيعات إلى Supabase بنجاح.`;
+              if (salesSyncResult.skippedColumns && salesSyncResult.skippedColumns.length) {
+                salesMsg += `\n\n⚠️ ملاحظة: جدول sales_lines في Supabase ناقص هذه الأعمدة، فتم رفع باقي البيانات بدونها تلقائياً بدون فشل الرفع: ${salesSyncResult.skippedColumns.join(', ')}.\nلحفظها بشكل دائم بدل استبعادها في كل مرة، نفّذ مرة واحدة في SQL Editor بتاع Supabase:\n${buildAlterTableSql('sales_lines', salesSyncResult.skippedColumns)}`;
+              }
+            }
             else salesMsg += `\n\n❌ فشل رفع المبيعات إلى Supabase.\nرسالة الخطأ: ${salesSyncResult.error}\n\nتم الاحتفاظ بالبيانات محلياً في هذا المتصفح حتى يتم إصلاح جدول sales_lines أو صلاحيات RLS.`;
           }
           renderCloudStatus(null, null, salesSyncResult && !salesSyncResult.ok ? { message: salesSyncResult.error } : null);
@@ -2816,6 +2889,9 @@
           if (itemsSyncResult) {
             if (itemsSyncResult.ok) {
               msg += `\n\n☁️ تم رفع ${itemsSyncResult.syncedCount.toLocaleString('en-US')} صنف إلى قاعدة البيانات السحابية (Supabase) بنجاح.`;
+              if (itemsSyncResult.skippedColumns && itemsSyncResult.skippedColumns.length) {
+                msg += `\n\n⚠️ ملاحظة: جدول inventory_items في Supabase ناقص هذه الأعمدة، فتم رفع باقي البيانات بدونها تلقائياً بدون فشل الرفع: ${itemsSyncResult.skippedColumns.join(', ')}.\nلحفظها بشكل دائم بدل استبعادها في كل مرة، نفّذ مرة واحدة في SQL Editor بتاع Supabase:\n${buildAlterTableSql('inventory_items', itemsSyncResult.skippedColumns)}`;
+              }
             } else {
               msg += `\n\n❌ فشل رفع الأصناف إلى قاعدة البيانات السحابية!\nتم رفع ${itemsSyncResult.syncedCount.toLocaleString('en-US')} من أصل ${itemsSyncResult.totalCount.toLocaleString('en-US')} فقط قبل توقف العملية بسبب خطأ.\nرسالة الخطأ من Supabase: ${itemsSyncResult.error}\n\n⚠️ الأصناف محفوظة في هذا المتصفح فقط الآن. الأسباب الشائعة: جدول inventory_items غير موجود بنفس الاسم، أو أعمدة الجدول لا تطابق أعمدة البيانات المرفوعة، أو سياسة RLS في Supabase لا تسمح بالكتابة (upsert) بمفتاح anon.`;
             }
