@@ -41,6 +41,8 @@
        isolates the digit run's LTR order without touching box layout at all. */
     .num { font-family: 'Inter', sans-serif; direction: ltr; unicode-bidi: isolate; }
     .nav-btn.active { background-color: var(--primary); color: white; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25); }
+    .trend-granularity-btn { color: #64748b; }
+    .trend-granularity-btn.active { background-color: var(--primary); color: white; }
     .tab-content { display: none; }
     .tab-content.active { display: block; }
     .modal {
@@ -403,7 +405,17 @@
       </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm"><h4 class="text-sm font-bold text-slate-800 mb-4">اتجاه صافي المبيعات حسب التاريخ</h4><div class="relative h-72"><canvas id="salesTrendChart"></canvas></div></div>
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+          <div class="flex items-center justify-between flex-wrap gap-2 mb-4">
+            <h4 class="text-sm font-bold text-slate-800">اتجاه صافي المبيعات حسب التاريخ</h4>
+            <div class="flex items-center bg-slate-100 p-1 rounded-lg gap-1">
+              <button data-granularity="day" class="trend-granularity-btn active px-2.5 py-1 rounded-md text-[11px] font-bold transition-all">يوم</button>
+              <button data-granularity="month" class="trend-granularity-btn px-2.5 py-1 rounded-md text-[11px] font-bold transition-all">شهر</button>
+              <button data-granularity="year" class="trend-granularity-btn px-2.5 py-1 rounded-md text-[11px] font-bold transition-all">سنة</button>
+            </div>
+          </div>
+          <div class="relative h-72"><canvas id="salesTrendChart"></canvas></div>
+        </div>
         <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm"><h4 class="text-sm font-bold text-slate-800 mb-4">صافي المبيعات حسب نقطة البيع</h4><div class="relative h-72"><canvas id="salesPosChart"></canvas></div></div>
       </div>
 
@@ -1470,7 +1482,7 @@
       search: '', category: '', movement: '', priceClass: '',
       sortKey: 'stockValue', sortDir: -1,
       movesSearch: '', moveType: '',
-            salesSearch: '', salesPos: '',
+            salesSearch: '', salesPos: '', salesTrendGranularity: 'day',
       lastUpdatedAt: loadSetting("data_last_updated_at", ""),
 
             // Start with a completely empty local dataset. Real inventory, moves, and
@@ -2217,21 +2229,38 @@
       const orders = new Set(rows.map(s => s.receipt || s.orderRef).filter(Boolean));
       return { revenue, netQty, margin, marginPct: revenue ? (margin / revenue) * 100 : 0, orders: orders.size, marginKnown: marginRows.length };
     }
+    // كل مستوى تجميع بيحدد أقصى عدد نقاط معقول يتعرض على الرسم (يوم: آخر 90 يوم، شهر: آخر
+    // 36 شهر = 3 سنين، سنة: آخر 30 سنة -- عملياً بيعرض كل السنين الموجودة في أي بيانات
+    // حقيقية) عشان الرسم يفضل مقروء بدل ما يتزنق بمئات النقاط.
+    const SALES_TREND_MAX_POINTS = { day: 90, month: 36, year: 30 };
+    const SALES_TREND_LABELS = { day: 'يومي', month: 'شهري', year: 'سنوي' };
+    // بيرجع مفتاح التجميع المناسب من تاريخ "YYYY-MM-DD" الجاهز (بدون وقت أصلاً بعد إصلاح
+    // formatJSDateForDisplay) -- قص نصي بسيط بيفضل بيرتب أبجدياً بنفس ترتيب التاريخ الزمني
+    // الحقيقي (YYYY-MM-DD كله بنفس عدد الخانات)، فمفيش داعي لتحويله لكائن Date وترتيبه.
+    function bucketSalesDate(dateStr, granularity) {
+      const raw = String(dateStr || '');
+      if (!raw) return null;
+      if (granularity === 'year') return raw.slice(0, 4) || null;
+      if (granularity === 'month') return raw.slice(0, 7) || null;
+      return raw.slice(0, 10) || null;
+    }
     function renderSalesCharts(rows) {
       if (salesTrendChartInstance) salesTrendChartInstance.destroy();
       if (salesPosChartInstance) salesPosChartInstance.destroy();
+      const granularity = state.salesTrendGranularity || 'day';
       const byDate = {};
       const byPos = {};
       rows.forEach(s => {
-        const date = String(s.date || 'غير محدد').slice(0, 10);
+        const bucket = bucketSalesDate(s.date, granularity);
         const pos = s.pos || 'غير محدد';
-        byDate[date] = (byDate[date] || 0) + (Number(s.netAmount) || 0);
+        if (bucket) byDate[bucket] = (byDate[bucket] || 0) + (Number(s.netAmount) || 0);
         byPos[pos] = (byPos[pos] || 0) + (Number(s.netAmount) || 0);
       });
-      const dates = Object.keys(byDate).sort().slice(-60);
+      const maxPoints = SALES_TREND_MAX_POINTS[granularity] || 60;
+      const dates = Object.keys(byDate).sort().slice(-maxPoints);
       const posEntries = Object.entries(byPos).sort((a, b) => b[1] - a[1]).slice(0, 20);
       salesTrendChartInstance = new Chart(document.getElementById('salesTrendChart'), {
-        type: 'line', data: { labels: dates, datasets: [{ label: 'صافي المبيعات', data: dates.map(d => byDate[d]), borderColor: '#059669', backgroundColor: 'rgba(5,150,105,.12)', fill: true, tension: .25 }] },
+        type: 'line', data: { labels: dates, datasets: [{ label: `صافي المبيعات (${SALES_TREND_LABELS[granularity] || ''})`, data: dates.map(d => byDate[d]), borderColor: '#059669', backgroundColor: 'rgba(5,150,105,.12)', fill: true, tension: .25 }] },
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
       });
       salesPosChartInstance = new Chart(document.getElementById('salesPosChart'), {
@@ -2835,6 +2864,14 @@
     document.getElementById("moveTypeFilter").addEventListener("change", (e) => { state.moveType = e.target.value; movesRenderLimit = 300; refreshMovesView(); });
     document.getElementById("salesSearchInput").addEventListener("input", debounce((e) => { state.salesSearch = e.target.value; salesRenderLimit = 300; refreshSalesView(); }, 250));
     document.getElementById("salesPosFilter").addEventListener("change", (e) => { state.salesPos = e.target.value; salesRenderLimit = 300; renderSalesDashboard(); });
+    document.querySelectorAll(".trend-granularity-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (state.salesTrendGranularity === btn.dataset.granularity) return;
+        state.salesTrendGranularity = btn.dataset.granularity;
+        document.querySelectorAll(".trend-granularity-btn").forEach(b => b.classList.toggle("active", b === btn));
+        renderSalesCharts(getFilteredSales());
+      });
+    });
     document.getElementById("exportSalesBtn").addEventListener("click", exportSalesToExcel);
 
     document.querySelectorAll("th[data-key]").forEach(th => {
