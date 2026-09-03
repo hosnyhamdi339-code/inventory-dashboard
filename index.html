@@ -394,6 +394,7 @@
             <option value="">كل نقاط البيع</option>
           </select>
           <button id="exportSalesBtn" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold py-2 px-3 rounded-xl border border-emerald-200 transition-all">⬇️ تصدير المبيعات</button>
+          <button id="openUnmatchedBarcodesBtn" class="hidden bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold py-2 px-3 rounded-xl border border-amber-200 transition-all whitespace-nowrap">⚠️ <span id="unmatchedBarcodesBtnCount">0</span> باركود غير مطابق — راجعها</button>
         </div>
       </div>
 
@@ -633,6 +634,40 @@
       <p class="text-[11px] text-slate-500 bg-indigo-50/50 border border-indigo-100 rounded-lg p-2">🔎 لكل اسم غير مطابق، النظام بيقترح تلقائياً أقرب صنف موجود (بناءً على تشابه الكلمات بعد تجاهل أرقام الإصدار/التعبئة الملتصقة زي "Collection2")، مع نسبة الثقة. الاقتراح لا يُطبَّق أبداً إلا بضغطة تأكيد صريحة منك — أو تجميعياً عبر الزر أعلاه لو الثقة عالية جداً.</p>
       <div id="unmatchedProductsListContainer" class="space-y-2"></div>
       <div id="unmatchedProductsLoadMoreRow"></div>
+    </div>
+  </div>
+
+  <!-- MODAL 6: Unmatched Sales Barcodes -- diagnosis only, deliberately NOT an auto-link
+       tool like Modal 5 above. A barcode is meant to be an exact identifier; unlike a
+       fuzzy product-name match, silently suggesting "closest barcode" here could attribute
+       real revenue/margin to the wrong SKU -- a worse outcome than leaving it correctly
+       flagged as unmatched. This just ranks the gap by revenue impact and flags the single
+       most common real-world cause (a leading zero dropped by Excel on one side), so the
+       user can fix it at the source (the sales export or the valuation/master file). -->
+  <div id="unmatchedBarcodesModal" class="modal">
+    <div class="bg-white rounded-2xl p-6 w-full max-w-4xl shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] overflow-y-auto">
+      <div class="flex items-center justify-between border-b border-slate-200 pb-3">
+        <div>
+          <h3 class="text-base font-bold text-slate-900">باركودات مبيعات غير مطابقة لملف التقييم</h3>
+          <p class="text-xs text-slate-500 mt-1 max-w-2xl">باركودات ظهرت في ملف المبيعات ولا تُطابق أي باركود في ملف التقييم/المخزون الحالي — مرتبة حسب أعلى إيراد متأثر (الأكثر تأثيراً أولاً). هذه القائمة للمراجعة والتصحيح في مصدر الملفات فقط — النظام لا يخمّن أو يربط باركودات تلقائياً لأن ده ممكن ينسب إيراد/هامش لصنف غلط.</p>
+        </div>
+        <button onclick="closeUnmatchedBarcodesModal()" class="text-slate-400 hover:text-slate-600">✕</button>
+      </div>
+      <div class="flex items-center justify-between gap-2 flex-wrap">
+        <div id="unmatchedBarcodesCountLabel" class="text-xs text-slate-500 font-semibold"></div>
+        <button id="exportUnmatchedBarcodesBtn" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold py-1.5 px-3 rounded-lg border border-emerald-200 transition-all">⬇️ تصدير القائمة الكاملة Excel</button>
+      </div>
+      <p class="text-[11px] text-slate-500 bg-amber-50/50 border border-amber-100 rounded-lg p-2">🔎 السطر المُعلَّم "⚠️ فرق صفر بادئ محتمل" يعني: نفس الباركود موجود بالضبط في ملف التقييم بعد حذف الأصفار البادئة من الجانبين — سبب شائع جداً لما Excel يفتح عمود الباركود كرقم بدل نص فيحذف الصفر الأول. الحل: افتح الملفين وتأكد إن عمود الباركود منسّق كـ "نص" (Text) مش رقم، ثم أعد الرفع.</p>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs text-right">
+          <thead class="bg-slate-100 text-slate-600"><tr>
+            <th class="p-2">الباركود (من ملف المبيعات)</th><th class="p-2">اسم الصنف في المبيعات</th>
+            <th class="p-2">الكمية</th><th class="p-2">الإيراد المتأثر</th><th class="p-2">عدد السطور</th><th class="p-2">ملاحظة</th>
+          </tr></thead>
+          <tbody id="unmatchedBarcodesListContainer" class="divide-y divide-slate-200"></tbody>
+        </table>
+      </div>
+      <div id="unmatchedBarcodesLoadMoreRow"></div>
     </div>
   </div>
 
@@ -1454,6 +1489,7 @@
     // filter/sort/search interactions re-render FROM this cache instead of redoing it.
     let cachedProcessed = [];
     let lastUnmatchedStats = [];
+    let lastUnmatchedSalesBarcodeStats = [];
     let inventoryRenderLimit = 300;
     let movesRenderLimit = 300;
     let salesRenderLimit = 300;
@@ -2000,13 +2036,40 @@
         const sampleNames = unmatchedStats.slice(0, 3).map(s => s.displayName);
         notes.push(`⚠️ ${unmatchedStats.length.toLocaleString('en-US')} صنف من أسماء ملف الحركات (${pct}% من الأصناف المذكورة هناك) لا يُطابق أي صنف في بيانات المخزون الحالية — حركات هذه الأصناف لن تُحتسب في معدل الدوران/الأيام حتى تُربط أو تُستبعد يدوياً. أمثلة: ${sampleNames.join(' | ')}. راجعها وحلّها من زر "⚠️ صنف غير مطابق" في تبويب سجل الحركات — إما بربطها بصنف موجود (لو نفس المنتج باسم مختلف)، أو بتجاهلها نهائياً (لو منتج/خامة مش من أصناف المخزون المُقيّمة أصلاً).`);
       }
+      let unmatchedSalesBarcodeStats = [];
       if (salesMode) {
         const knownBarcodes = new Set(state.items.map(i => normalizeBarcode(i.barcode)).filter(Boolean));
         const salesWithBarcode = activeSales.filter(s => normalizeBarcode(s.barcode));
         const unmatchedSales = salesWithBarcode.filter(s => !knownBarcodes.has(normalizeBarcode(s.barcode)));
         const missingBarcodeCount = activeSales.length - salesWithBarcode.length;
         if (missingBarcodeCount > 0) notes.push(`⚠️ ${missingBarcodeCount.toLocaleString('en-US')} سطر مبيعات بدون باركود — لن يدخل في معدل دوران أصناف المخزون حتى يتم تصحيح الملف.`);
-        if (unmatchedSales.length > 0) notes.push(`⚠️ ${unmatchedSales.length.toLocaleString('en-US')} سطر مبيعات بباركود غير موجود في ملف التقييم — تم الاحتفاظ بها في لوحة المبيعات، لكنها لا تُنسب لصنف مخزون حتى يتم تحديث ملف التقييم.`);
+        if (unmatchedSales.length > 0) {
+          notes.push(`⚠️ ${unmatchedSales.length.toLocaleString('en-US')} سطر مبيعات بباركود غير موجود في ملف التقييم — تم الاحتفاظ بها في لوحة المبيعات، لكنها لا تُنسب لصنف مخزون حتى يتم تحديث ملف التقييم. راجع زر "باركود غير مطابق" في تبويب المبيعات لعينة مرتبة حسب الأثر على الإيراد.`);
+          // Aggregate by barcode (not by line) so the review list ranks by real business
+          // impact -- a barcode appearing in 5,000 lines matters far more than one in 2 --
+          // and flag the single most common real-world cause of this class of mismatch:
+          // Excel silently dropping a leading zero when a barcode column is stored/opened
+          // as a number instead of text, on EITHER the sales export or the valuation export.
+          // This is a HINT, never an auto-match -- barcodes are exact identifiers, and
+          // silently linking a "probably the same" barcode risks attributing revenue/margin
+          // to the wrong SKU, which is worse than leaving it correctly flagged as unmatched.
+          const knownBarcodesStripped = new Set(Array.from(knownBarcodes).map(b => b.replace(/^0+/, '')).filter(Boolean));
+          const byBc = {};
+          unmatchedSales.forEach(s => {
+            const bc = normalizeBarcode(s.barcode);
+            if (!byBc[bc]) byBc[bc] = { barcode: bc, product: s.product || '', qty: 0, revenue: 0, lineCount: 0 };
+            const b = byBc[bc];
+            b.qty += Number(s.qty) || 0;
+            b.revenue += Number(s.netAmount) || 0;
+            b.lineCount += 1;
+            if (!b.product && s.product) b.product = s.product;
+          });
+          unmatchedSalesBarcodeStats = Object.values(byBc).map(row => {
+            const stripped = row.barcode.replace(/^0+/, '');
+            row.hint = (stripped && knownBarcodesStripped.has(stripped)) ? 'leading_zero' : null;
+            return row;
+          }).sort((a, b) => Math.abs(b.revenue) - Math.abs(a.revenue));
+        }
         notes.push(`ℹ️ تم حساب معدل دوران المخزون وأيام التغطية من صافي المبيعات المرتبطة بالباركود خلال ${salesPeriodDays.toLocaleString('en-US')} يوم، وليس من حركات التحويل الداخلية.`);
       }
 
@@ -2064,18 +2127,19 @@
           auditDate: item.auditDate || '-'
         };
       });
-      return { processed, notes, unmatchedStats };
+      return { processed, notes, unmatchedStats, unmatchedSalesBarcodeStats, salesMode, salesPeriodDays };
     }
 
     // Heavy path: recomputes all financial figures from scratch. Call this ONLY when
     // state.items / state.moves / settings / targetMargin actually changed.
     function recomputeAndRenderAll() {
-            const { processed, notes, unmatchedStats } = processInventoryData();
+            const { processed, notes, unmatchedStats, unmatchedSalesBarcodeStats, salesMode, salesPeriodDays } = processInventoryData();
       renderDataMeta();
       cachedProcessed = processed;
 
       lastDataQualityNotes = notes;
       lastUnmatchedStats = unmatchedStats;
+      lastUnmatchedSalesBarcodeStats = unmatchedSalesBarcodeStats || [];
       fuzzyItemIndex = buildFuzzyItemIndex(processed);
       const unmatchedBtn = document.getElementById("openUnmatchedProductsBtn");
       if (unmatchedStats.length > 0) {
@@ -2084,13 +2148,29 @@
       } else {
         unmatchedBtn.classList.add("hidden");
       }
-      
+      const unmatchedBarcodeBtn = document.getElementById("openUnmatchedBarcodesBtn");
+      if (unmatchedBarcodeBtn) {
+        if (lastUnmatchedSalesBarcodeStats.length > 0) {
+          unmatchedBarcodeBtn.classList.remove("hidden");
+          document.getElementById("unmatchedBarcodesBtnCount").innerText = lastUnmatchedSalesBarcodeStats.length.toLocaleString('en-US');
+        } else {
+          unmatchedBarcodeBtn.classList.add("hidden");
+        }
+      }
+
       showDataQualityBanner(notes);
 
       const totalVal = processed.reduce((sum, i) => sum + i.stockValue, 0);
       const totalSold = processed.reduce((sum, i) => sum + i.actualSoldQty, 0);
       const totalQty = processed.reduce((sum, i) => sum + i.qtyOnHand, 0);
-      const avgTurnover = totalQty > 0 ? (totalSold / totalQty).toFixed(2) : "0.0";
+      // BUG FIX: this used to be the raw period ratio (totalSold/totalQty) with no
+      // annualization, while every PER-ITEM turnoverRate below multiplies by (365/salesPeriodDays)
+      // in sales mode. That mismatch meant the top KPI card and the per-item column could
+      // never agree, and — with a long sales window (salesPeriodDays well over 100, common
+      // for a multi-month export) — silently understated the headline turnover number by the
+      // same ratio. Keep the two numbers computed the same way.
+      const rawTurnoverRatio = totalQty > 0 ? (totalSold / totalQty) : 0;
+      const avgTurnover = (rawTurnoverRatio * (salesMode ? (365 / salesPeriodDays) : 1)).toFixed(2);
       const avgDays = Number(avgTurnover) > 0 ? Math.round(365 / Number(avgTurnover)) : 0;
       document.getElementById("kpiTotalValue").innerText = Math.round(totalVal).toLocaleString('en-US');
       document.getElementById("kpiAvgTurnover").innerText = `${avgTurnover}x`;
@@ -3071,6 +3151,39 @@
       if (loadMoreBtn) loadMoreBtn.addEventListener("click", () => { unmatchedProductsRenderLimit += 50; renderUnmatchedProductsList(); });
     }
 
+    /* ============================================================================
+       SECTION G.1 — Unmatched Sales Barcodes reconciliation (diagnosis + export only,
+       no auto-link -- see the comment on MODAL 6's HTML for why)
+       ============================================================================ */
+    let unmatchedBarcodesRenderLimit = 50;
+    function openUnmatchedBarcodesModal() {
+      unmatchedBarcodesRenderLimit = 50;
+      renderUnmatchedBarcodesList();
+      document.getElementById("unmatchedBarcodesModal").classList.add("active");
+    }
+    window.closeUnmatchedBarcodesModal = function() { document.getElementById("unmatchedBarcodesModal").classList.remove("active"); };
+
+    function renderUnmatchedBarcodesList() {
+      const stats = lastUnmatchedSalesBarcodeStats;
+      const visible = stats.slice(0, unmatchedBarcodesRenderLimit);
+      document.getElementById("unmatchedBarcodesListContainer").innerHTML = visible.map(s => `
+        <tr>
+          <td class="p-2 num font-bold text-slate-900">${escapeHtml(s.barcode)}</td>
+          <td class="p-2">${escapeHtml(s.product || '—')}</td>
+          <td class="p-2 num">${s.qty.toLocaleString('en-US')}</td>
+          <td class="p-2 num font-semibold">${Math.round(s.revenue).toLocaleString('en-US')}</td>
+          <td class="p-2 num">${s.lineCount.toLocaleString('en-US')}</td>
+          <td class="p-2">${s.hint === 'leading_zero' ? '<span class="text-amber-700 font-bold">⚠️ فرق صفر بادئ محتمل</span>' : ''}</td>
+        </tr>`).join('');
+      document.getElementById("unmatchedBarcodesCountLabel").innerText =
+        stats.length ? `يعرض ${visible.length.toLocaleString('en-US')} من إجمالي ${stats.length.toLocaleString('en-US')} باركود غير مطابق (${stats.filter(s => s.hint === 'leading_zero').length.toLocaleString('en-US')} منها فرق صفر بادئ محتمل)` : '';
+      const loadMoreEl = document.getElementById("unmatchedBarcodesLoadMoreRow");
+      loadMoreEl.innerHTML = stats.length > visible.length
+        ? `<button id="unmatchedBarcodesLoadMoreBtn" class="load-more-btn">عرض المزيد (+50) — المتبقي ${(stats.length - visible.length).toLocaleString('en-US')}</button>` : '';
+      const loadMoreBtn = document.getElementById("unmatchedBarcodesLoadMoreBtn");
+      if (loadMoreBtn) loadMoreBtn.addEventListener("click", () => { unmatchedBarcodesRenderLimit += 50; renderUnmatchedBarcodesList(); });
+    }
+
     // Type-to-search suggestions (max 8, debounced) -- searches the currently loaded
     // inventory items by name. Deliberately NOT a native <select> with tens of
     // thousands of <option> tags, which would be unusably slow to render per row.
@@ -3150,6 +3263,17 @@
           "اسم الصنف (من ملف الحركات)": s.displayName, "إجمالي الكمية المتحركة": s.totalQty, "عدد الحركات": s.moveCount
         }));
         exportRowsToExcel(`أصناف_غير_مطابقة_${new Date().toISOString().slice(0,10)}.xlsx`, rows);
+      });
+    });
+    document.getElementById("openUnmatchedBarcodesBtn").addEventListener("click", openUnmatchedBarcodesModal);
+    document.getElementById("exportUnmatchedBarcodesBtn").addEventListener("click", () => {
+      runExportWithLoadingState("⏳ جاري تجهيز ملف Excel...", () => {
+        const rows = lastUnmatchedSalesBarcodeStats.map(s => ({
+          "الباركود (من ملف المبيعات)": s.barcode, "اسم الصنف في المبيعات": s.product || '',
+          "الكمية": s.qty, "الإيراد المتأثر": Math.round(s.revenue), "عدد السطور": s.lineCount,
+          "ملاحظة": s.hint === 'leading_zero' ? 'فرق صفر بادئ محتمل' : ''
+        }));
+        exportRowsToExcel(`باركود_مبيعات_غير_مطابق_${new Date().toISOString().slice(0,10)}.xlsx`, rows);
       });
     });
     const FUZZY_BULK_ACCEPT_SCORE = 0.85;
