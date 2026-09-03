@@ -2685,8 +2685,16 @@
           if (supabaseClient && allSales.length) {
             const salesById = new Map();
             allSales.forEach(s => { if (!salesById.has(s.id)) salesById.set(s.id, s); });
+            // NOTE: no "dedupe_key" field here -- the sales_lines table on this project
+            // doesn't have that column (that's exactly what caused the PGRST204 "Could not
+            // find the 'dedupe_key' column" upload failure). It isn't needed functionally:
+            // "id" is already the deterministic hash used for upsert conflict resolution,
+            // which is all Supabase needs to dedupe correctly. If you want a human-readable
+            // dedupe key visible in SQL for manual debugging later, run this once in the
+            // Supabase SQL Editor and then this field can be added back:
+            //   ALTER TABLE public.sales_lines ADD COLUMN dedupe_key text;
             const salesToSync = Array.from(salesById.values()).map(s => ({
-                            id: s.id, dedupe_key: salesDedupeKey(s), sale_date: s.date || null, point_of_sale: s.pos || null, receipt_number: s.receipt || null,
+                            id: s.id, sale_date: s.date || null, point_of_sale: s.pos || null, receipt_number: s.receipt || null,
                order_ref: s.orderRef || null, status: s.status || null, barcode: s.barcode || null, product: s.product || null,
 
               qty: s.qty, unit_price: s.unitPrice, discount_pct: s.discountPct, net_amount: s.netAmount,
