@@ -713,10 +713,14 @@
       return new Date(dateInfo.getFullYear(), dateInfo.getMonth(), dateInfo.getDate(), hours, minutes, seconds);
     }
     function pad2(n) { return String(n).padStart(2, "0"); }
+    // تاريخ فقط (يوم-شهر-سنة) دايماً، بدون وقت -- الوقت كان بيتضاف تلقائياً لأي تاريخ
+    // مش بالظبط منتصف الليل (وده كل فواتير الـ POS تقريباً)، فكانت الأعمدة والتقارير
+    // مليانة أوقات مش لازمة بتقلل القرائية. لو محتاج الوقت لاحقاً لغرض تحليلي (تحديد
+    // ساعات الذروة مثلاً)، احتفظ بالتاريخ الأصلي كـ Date واستخرج الوقت وقت الحاجة بس --
+    // مش في نص العرض الافتراضي.
     function formatJSDateForDisplay(d) {
       const y = d.getFullYear(), mo = pad2(d.getMonth() + 1), da = pad2(d.getDate());
-      if (d.getHours() === 0 && d.getMinutes() === 0 && d.getSeconds() === 0) return `${y}-${mo}-${da}`;
-      return `${y}-${mo}-${da} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+      return `${y}-${mo}-${da}`;
     }
     function formatDateValue(v) {
       if (v === null || v === undefined || v === "") return "";
@@ -1532,7 +1536,13 @@
         const updateEl = document.getElementById(`lastUpdate${suffix}`);
         if (!rangeEl || !updateEl) return;
         rangeEl.textContent = range ? (range.start === range.end ? range.start : `${range.start} — ${range.end}`) : 'لا توجد بيانات';
-        updateEl.textContent = state.lastUpdatedAt ? formatLastUpdated(state.lastUpdatedAt) : 'لم يتم الرفع بعد';
+        // "آخر تحديث" دلوقتي بيعرض تاريخ آخر فاتورة/حركة فعلية موجودة في البيانات نفسها
+        // (range.latest، المُستخرج من أعمدة التاريخ الحقيقية في الملف) -- مش وقت رفع
+        // الملف على الجهاز. ده اللي فعلاً بيجاوب سؤال "بياناتي محدثة لحد امتى؟" لكل
+        // شيت على حدة. لو مفيش تاريخ قابل للقراءة في البيانات المرفوعة لهذا الشيت،
+        // بيرجع لوقت آخر رفع كحل احتياطي مع توضيح إنه وقت رفع مش تاريخ فاتورة.
+        updateEl.textContent = range ? range.latest
+          : (state.lastUpdatedAt ? formatLastUpdated(state.lastUpdatedAt) + ' (وقت الرفع — لا يوجد تاريخ فواتير قابل للقراءة في البيانات)' : 'لم يتم الرفع بعد');
       });
     }
 
@@ -2335,7 +2345,68 @@
     /* ============================================================================
        SECTION E — Excel upload pipeline (parse -> review columns -> merge -> sync)
        ============================================================================ */
-    function parseExcelFile(file) {
+    // Excel merged cells (e.g. Date/POS/Receipt merged down across every line item of one
+    // invoice, common in ERP/POS exports) only carry a real value on the TOP-LEFT cell of
+    // the merge -- every other cell in that range is genuinely empty in the raw sheet, so
+    // sheet_to_json() returns blank for those rows unless the merge is expanded first. This
+    // copies each merge's top-left value into every other cell in its range BEFORE the sheet
+    // is converted to JSON, so "fill down" of Date/POS/Receipt (and any other merged column)
+    // is based on Excel's own merge metadata -- exact, not a guess -- rather than relying only
+    // on the row-order heuristic in fillDownSalesContext (kept as a fallback for exports that
+    // leave cells blank without an actual Excel merge behind them).
+    function unmergeCells(worksheet) {
+      const merges = worksheet['!merges'];
+      if (!merges || !merges.length) return;
+      merges.forEach(range => {
+        const topLeftAddr = XLSX.utils.encode_cell({ r: range.s.r, c: range.s.c });
+        const topLeftCell = worksheet[topLeftAddr];
+        if (!topLeftCell) return;
+        for (let r = range.s.r; r <= range.e.r; r++) {
+          for (let c = range.s.c; c <= range.e.c; c++) {
+            if (r === range.s.r && c === range.s.c) continue;
+            const addr = XLSX.utils.encode_cell({ r, c });
+            if (!worksheet[addr]) worksheet[addr] = { ...topLeftCell };
+          }
+        }
+      });
+    }
+    // Scores how well a sheet's headers match the columns a given upload type actually
+    // needs -- used to pick the RIGHT sheet out of a multi-sheet workbook instead of just
+    // "whichever sheet happens to have the most rows" (see parseExcelFile below). Critical
+    // columns for that specific type are weighted heavily so, e.g., a "تقييم" upload never
+    // gets matched to a sales sheet just because the sales sheet is bigger.
+    function scoreSheetForType(rows, uploadType) {
+      if (!rows || !rows.length) return -1;
+      const headerIndex = buildHeaderIndex(rows);
+      let cols, criticalKeys;
+      if (uploadType === 'moves') {
+        cols = autoDetectMovesCols(headerIndex);
+        criticalKeys = ['productCol', 'fromCol', 'toCol', 'qtyCol'];
+      } else if (uploadType === 'sales') {
+        cols = autoDetectSalesCols(headerIndex);
+        criticalKeys = ['barcodeCol', 'productCol', 'qtyCol', 'netCol'];
+      } else {
+        cols = autoDetectValuationCols(headerIndex);
+        criticalKeys = uploadType === 'valuation' ? ['nameCol', 'unitCostCol', 'salesPriceCol']
+          : uploadType === 'invInitial' ? ['nameCol', 'qtyInitialCol']
+          : uploadType === 'invFinal' ? ['nameCol', 'qtyFinalCol']
+          : uploadType === 'audit' ? ['nameCol', 'auditQtyCol']
+          : ['nameCol'];
+      }
+      let score = 0;
+      Object.values(cols).forEach(v => { if (v) score += 1; });
+      criticalKeys.forEach(k => { if (cols[k]) score += 5; });
+      return score;
+    }
+    // uploadType is optional (e.g. 'invInitial' | 'invFinal' | 'audit' | 'valuation' | 'moves' | 'sales').
+    // When given AND the workbook has more than one non-empty sheet, the sheet whose headers
+    // best match that upload type's expected columns is used -- NOT just the biggest sheet.
+    // This fixes a real-world case: one workbook with several sheets (e.g. a "المبيعات" sheet
+    // alongside a "الحركات" or "تقييم" sheet) was silently always resolving to whichever
+    // sheet had the most rows (almost always sales, since POS exports are huge) no matter
+    // which upload button was actually clicked -- so "رفع تكاليف وأسعار" or "رفع حركات
+    // المخزون" would quietly read the sales sheet's columns and import nothing usable.
+    function parseExcelFile(file, uploadType) {
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = (e) => {
@@ -2357,15 +2428,29 @@
             } else {
               workbook = XLSX.read(bytes, { type: 'array' });
             }
-            // Scan every sheet and use the first one that actually contains rows
-            // (guards against a cover/notes sheet being SheetNames[0]).
-            let bestRows = null;
+            // Collect every non-empty sheet (unmerging first so merged Date/POS/Receipt
+            // columns come through with real values on every row) instead of only tracking
+            // a single running "biggest so far" -- needed so sheets can be scored against
+            // the upload type below rather than picked purely by row count.
+            const candidateSheets = [];
             for (const name of workbook.SheetNames) {
               const ws = workbook.Sheets[name];
+              unmergeCells(ws);
               const json = XLSX.utils.sheet_to_json(ws, { defval: "", raw: true });
-              if (json.length > 0 && (!bestRows || json.length > bestRows.length)) bestRows = json;
+              if (json.length > 0) candidateSheets.push({ name, rows: json });
             }
-            resolve(bestRows || []);
+            if (!candidateSheets.length) { resolve([]); return; }
+            if (candidateSheets.length === 1 || !uploadType) {
+              // Single real sheet, or caller didn't pass a type -- the old "most rows"
+              // behavior is harmless (and is now just applied to a list of size 1 in the
+              // common single-sheet case).
+              candidateSheets.sort((a, b) => b.rows.length - a.rows.length);
+              resolve(candidateSheets[0].rows);
+              return;
+            }
+            const scored = candidateSheets.map(c => ({ ...c, score: scoreSheetForType(c.rows, uploadType) }));
+            scored.sort((a, b) => (b.score - a.score) || (b.rows.length - a.rows.length));
+            resolve(scored[0].rows);
           } catch (err) { reject(err); }
         };
         reader.onerror = (err) => reject(err);
@@ -2478,7 +2563,7 @@
           let allMoves = [], summary = { total: 0, mapped: 0, skippedEmpty: 0 }, aborted = false, sharedCols = null;
           for (const file of fileInput.files) {
             setUploadLoading(true, `⏳ جاري قراءة ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)...`);
-            let rows = await parseExcelFile(file);
+            let rows = await parseExcelFile(file, 'moves');
             let cols = sharedCols;
             if (!cols) {
               const headerIndex = buildHeaderIndex(rows);
@@ -2565,7 +2650,7 @@
           let allSales = [], summary = { total: 0, mapped: 0, skippedEmpty: 0, missingBarcode: 0, returns: 0, cancelled: 0, filledDown: 0 }, aborted = false, sharedCols = null;
           for (const file of fileInput.files) {
             setUploadLoading(true, `⏳ جاري قراءة ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)...`);
-            const rows = await parseExcelFile(file);
+            const rows = await parseExcelFile(file, 'sales');
             let cols = sharedCols;
             if (!cols) {
               const headerIndex = buildHeaderIndex(rows);
@@ -2615,7 +2700,7 @@
             setUploadLoading(true, `⏳ الملف كبير (${(file.size/1024/1024).toFixed(1)} MB) — القراءة والتحليل قد تستغرق عدة ثوانٍ ولن تستجيب الصفحة خلالها، هذا طبيعي وليس تعليقاً للنظام...`);
           }
 
-          let rows = await parseExcelFile(file);
+          let rows = await parseExcelFile(file, type);
           const headerIndex = buildHeaderIndex(rows);
           const autoCols = autoDetectValuationCols(headerIndex);
           const cols = await showMappingReviewModal(type, headerIndex.headerList, autoCols, rows);
