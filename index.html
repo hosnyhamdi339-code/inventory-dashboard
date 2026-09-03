@@ -971,11 +971,47 @@
       const t = normalizeHeader(status);
       return ['cancel', 'cancelled', 'canceled', 'void', 'ملغي', 'ملغى', 'مرفوض'].some(k => t.includes(normalizeHeader(k)));
     }
-    function extractSalesRows(rows, cols) {
+    function isBlankCell(value) {
+      return value === null || value === undefined || String(value).trim() === '';
+    }
+    // ERP exports often merge invoice-level cells vertically. Fill down only safe
+    // context fields; never fill down barcode, product, quantity, price, payment, or
+    // margin fields because doing so could invent a sale or duplicate an amount.
+    function fillDownSalesContext(rows, cols, stats) {
+      const carryKeys = ['dateCol', 'posCol', 'receiptCol', 'orderCol', 'statusCol'];
+      const carry = {};
+      return rows.map(row => {
+        const next = { ...row };
+        carryKeys.forEach(key => {
+          const col = cols[key];
+          if (!col) return;
+          const raw = getBy(row, col);
+          if (isBlankCell(raw)) {
+            if (!isBlankCell(carry[col])) { next[col] = carry[col]; if (stats) stats.filledDown = (stats.filledDown || 0) + 1; }
+          } else {
+            carry[col] = raw;
+          }
+        });
+        return next;
+      });
+    }
+    function buildSalesExtraData(row, cols, mappedColumnsArg) {
+      const mappedColumns = mappedColumnsArg || new Set(Object.values(cols || {}).filter(Boolean));
+      const extra = {};
+      Object.keys(row || {}).forEach(header => {
+        if (mappedColumns.has(header)) return;
+        const value = row[header];
+        if (!isBlankCell(value)) extra[String(header)] = value;
+      });
+      return Object.keys(extra).length ? extra : null;
+    }
+    function extractSalesRows(rows, cols, options = {}) {
       const identityFound = !!(cols.barcodeCol || cols.productCol);
-      const result = { sales: [], stats: { total: rows.length, mapped: 0, skippedEmpty: 0, missingBarcode: 0, returns: 0, cancelled: 0 }, cols, identityFound };
+      const result = { sales: [], stats: { total: rows.length, mapped: 0, skippedEmpty: 0, missingBarcode: 0, returns: 0, cancelled: 0, filledDown: 0 }, cols, identityFound };
       if (!identityFound) return result;
-      rows.forEach((row, rowIndex) => {
+      const mappedColumns = new Set(Object.values(cols || {}).filter(Boolean));
+      const preparedRows = options.skipFillDown ? rows : fillDownSalesContext(rows, cols, result.stats);
+      preparedRows.forEach((row, rowIndex) => {
         const barcode = normalizeBarcode(getBy(row, cols.barcodeCol));
         const product = normalizeText(getBy(row, cols.productCol));
         if (!barcode && !product) { result.stats.skippedEmpty++; return; }
@@ -1015,9 +1051,10 @@
           marginPct: numOrNull(row, cols.marginPctCol),
           unitCost,
           paymentAmount: rawPayment,
+          extraData: buildSalesExtraData(row, cols, mappedColumns),
           isReturn,
           isCancelled: cancelled,
-          sourceRow: rowIndex + 2
+          sourceRow: (Number(options.rowOffset) || 0) + rowIndex + 2
         };
         s.id = salesId(s);
         result.stats.mapped++;
@@ -1027,6 +1064,21 @@
         result.sales.push(s);
       });
       return result;
+    }
+    async function extractSalesRowsInChunks(rows, cols, chunkSize = 5000) {
+      const fillStats = { filledDown: 0 };
+      const preparedRows = fillDownSalesContext(rows, cols, fillStats);
+      const combined = { sales: [], stats: { total: rows.length, mapped: 0, skippedEmpty: 0, missingBarcode: 0, returns: 0, cancelled: 0, filledDown: 0 }, cols, identityFound: !!(cols.barcodeCol || cols.productCol) };
+      for (let start = 0; start < preparedRows.length; start += chunkSize) {
+        const end = Math.min(start + chunkSize, preparedRows.length);
+        setUploadLoading(true, `⏳ جاري تحليل المبيعات: ${end.toLocaleString('en-US')} من ${preparedRows.length.toLocaleString('en-US')} صف...`);
+        const part = extractSalesRows(preparedRows.slice(start, end), cols, { skipFillDown: true, rowOffset: start });
+        combined.sales.push(...part.sales);
+        Object.keys(combined.stats).forEach(k => { if (typeof part.stats[k] === 'number') combined.stats[k] += part.stats[k]; });
+        if (start + chunkSize < preparedRows.length) await new Promise(resolve => setTimeout(resolve, 0));
+      }
+      combined.stats.filledDown = fillStats.filledDown;
+      return combined;
     }
 
     function classifyDirection(m, mainWarehouseKeywords) {
@@ -1130,6 +1182,7 @@
         const key = salesDedupeKey(s);
         const existing = existingByKey.get(key);
         if (existing) {
+          if (s.extraData) existing.extraData = { ...(existing.extraData || {}), ...s.extraData };
           s.id = existing.id || salesId(existing);
           duplicateCount++;
           return;
@@ -1764,7 +1817,8 @@
         paymentAmount: row.paymentAmount !== undefined && row.paymentAmount !== null ? Number(row.paymentAmount) : (row.payment_amount !== undefined && row.payment_amount !== null ? Number(row.payment_amount) : null),
         isReturn: row.isReturn !== undefined ? !!row.isReturn : !!row.is_return,
         isCancelled: row.isCancelled !== undefined ? !!row.isCancelled : !!row.is_cancelled,
-        sourceRow: row.sourceRow || row.source_row || null
+        sourceRow: row.sourceRow || row.source_row || null,
+        extraData: row.extraData || row.extra_data || null
       };
     }
     function getActiveSales() {
@@ -2479,7 +2533,7 @@
           renderCloudStatus(null, movesSyncResult && !movesSyncResult.ok ? { message: movesSyncResult.error } : null);
                     alert(movesMsg);
         } else if (type === 'sales') {
-          let allSales = [], summary = { total: 0, mapped: 0, skippedEmpty: 0, missingBarcode: 0, returns: 0, cancelled: 0 }, aborted = false, sharedCols = null;
+          let allSales = [], summary = { total: 0, mapped: 0, skippedEmpty: 0, missingBarcode: 0, returns: 0, cancelled: 0, filledDown: 0 }, aborted = false, sharedCols = null;
           for (const file of fileInput.files) {
             setUploadLoading(true, `⏳ جاري قراءة ${file.name}...`);
             const rows = await parseExcelFile(file);
@@ -2491,8 +2545,8 @@
               if (!cols) { aborted = true; break; }
               sharedCols = cols;
             }
-            const extracted = extractSalesRows(rows, cols);
-            allSales = allSales.concat(extracted.sales);
+            const extracted = await extractSalesRowsInChunks(rows, cols);
+            allSales.push(...extracted.sales);
             Object.keys(summary).forEach(k => { if (typeof extracted.stats[k] === 'number') summary[k] += extracted.stats[k]; });
           }
           if (aborted) { alert("تم إلغاء رفع ملف المبيعات."); return; }
@@ -2508,7 +2562,8 @@
 
               qty: s.qty, unit_price: s.unitPrice, discount_pct: s.discountPct, net_amount: s.netAmount,
               margin_amount: s.marginAmount, margin_pct: s.marginPct, unit_cost: s.unitCost, payment_amount: s.paymentAmount,
-              is_return: !!s.isReturn, is_cancelled: !!s.isCancelled, source_row: s.sourceRow
+              is_return: !!s.isReturn, is_cancelled: !!s.isCancelled, source_row: s.sourceRow,
+              extra_data: s.extraData || null
             }));
             setUploadLoading(true, `⏳ جاري رفع ${salesToSync.length.toLocaleString('en-US')} سطر مبيعات للسحابة...`);
             salesSyncResult = await batchUpsert('sales_lines', salesToSync);
@@ -2516,7 +2571,7 @@
           markDataUpdated();
           recomputeAndRenderAll();
           let salesMsg = (demoWasCleared ? `🧹 تم حذف بيانات العرض التجريبية تلقائياً لأن هذا أول رفع حقيقي.\n\n` : '') +
-            `✅ تمت معالجة ملف المبيعات محلياً بنجاح.\nإجمالي الصفوف المقروءة: ${summary.total}\nتم التعرف على: ${summary.mapped} سطر\nتمت إضافتها: ${addedCount} سطر جديد\nتم تجاهلها كتكرار: ${duplicateCount} سطر\nالمرتجعات المكتشفة: ${summary.returns}\nالصفوف الملغاة المستبعدة من الحساب: ${summary.cancelled}`;
+            `✅ تمت معالجة ملف المبيعات محلياً بنجاح.\nإجمالي الصفوف المقروءة: ${summary.total}\nتم التعرف على: ${summary.mapped} سطر\nتمت إضافتها: ${addedCount} سطر جديد\nتم تجاهلها كتكرار: ${duplicateCount} سطر\nالمرتجعات المكتشفة: ${summary.returns}\nالصفوف الملغاة المستبعدة من الحساب: ${summary.cancelled}\nتم ملء بيانات السياق الناقصة من الصف السابق: ${summary.filledDown}`;
           if (summary.missingBarcode > 0) salesMsg += `\n⚠️ ${summary.missingBarcode} سطر بدون باركود — محفوظ في التقرير لكن لن يُربط بصنف مخزون.`;
           if (summary.skippedEmpty > 0) salesMsg += `\n⚠️ تم تجاهل ${summary.skippedEmpty} صف فارغ بدون باركود أو اسم صنف.`;
           if (salesSyncResult) {
