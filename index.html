@@ -1602,8 +1602,51 @@
 
       try { return JSON.parse(localStorage.getItem("product_aliases") || "{}"); } catch (e) { return {}; }
     }
+    // CRITICAL FIX: this used to be localStorage-only. Every "ربط" (link) or "تجاهل"
+    // (ignore) decision made in the Unmatched Products modal lived ONLY in the browser
+    // that made it -- opening the same Supabase-connected app from a second device (or
+    // even the same device after clearing site data) showed the reconciliation work as if
+    // it never happened, because it never left that one browser. localStorage now stays as
+    // a fast local cache (works instantly, works offline), but Supabase's app_settings
+    // table (a small key/value table, NOT part of the inventory_items/stock_moves/
+    // sales_lines schema) is the source of truth once connected -- exactly the same pattern
+    // already used for the actual inventory data. See the app_settings SQL note below.
     function saveProductAliases() {
       localStorage.setItem("product_aliases", JSON.stringify(state.productAliases));
+      // Fire-and-forget: never block the UI (the modal already re-renders instantly from
+      // local state) on a network round-trip, but never swallow a real failure either --
+      // surface it the same way every other cloud-write failure in this app is surfaced.
+      saveProductAliasesToCloud().then(result => {
+        if (result && !result.ok) {
+          console.warn("Failed to sync product_aliases (link/ignore decisions) to Supabase:", result.error);
+          const el = document.getElementById("cloudStatusText");
+          if (el && supabaseClient) el.innerText = `⚠️ فشلت مزامنة قرارات الربط/التجاهل (product_aliases) مع السحابة: ${result.error}\nالقرار محفوظ في هذا المتصفح فقط الآن حتى تُصلَح المشكلة وتُعاد المزامنة (اضغط "اختبار الاتصال" أو أعد فتح الصفحة).`;
+        }
+      });
+    }
+    // Requires a small one-time table in Supabase (see the CREATE TABLE note near
+    // initSupabase). Not chunked -- this is always exactly one row -- but routed through
+    // the same self-healing batchUpsert() used everywhere else so a missing "updated_at"
+    // column (if the user creates the table without it) degrades gracefully instead of
+    // failing the whole sync, consistent with inventory_items/stock_moves/sales_lines.
+    async function saveProductAliasesToCloud() {
+      if (!supabaseClient) return { ok: true, syncedCount: 0, totalCount: 0, error: null, skippedColumns: [] };
+      return batchUpsert("app_settings", [{ key: "product_aliases", value: state.productAliases, updated_at: new Date().toISOString() }]);
+    }
+    // Cloud is the source of truth once connected: whatever the LAST device saved wins.
+    // This is a simple last-write-wins on the whole blob (not a per-decision merge) --
+    // acceptable here because these are occasional manual reconciliation decisions, not a
+    // high-frequency multi-user edit stream. Returns null (caller keeps local state) on
+    // any failure, including a table that doesn't exist yet -- so a user who hasn't run the
+    // CREATE TABLE statement yet still gets a fully working app with local-only linking,
+    // exactly like before this fix.
+    async function loadProductAliasesFromCloud() {
+      if (!supabaseClient) return null;
+      try {
+        const { data, error } = await supabaseClient.from("app_settings").select("value").eq("key", "product_aliases").maybeSingle();
+        if (error) { console.warn("app_settings (product_aliases) load error:", error.message); return null; }
+        return (data && data.value && typeof data.value === "object") ? data.value : null;
+      } catch (err) { console.warn("app_settings (product_aliases) load failed:", err); return null; }
     }
     // Resolves a raw moves-file product name to the normalized key it should be
     // aggregated under, honoring any manual alias. Returns null when the name is
@@ -1812,10 +1855,11 @@
         const progressCounts = { items: 0, moves: 0, sales: 0 };
         const reportProgress = () => setUploadLoading(true,
           `⏳ جاري تحميل البيانات من السحابة — أصناف: ${progressCounts.items.toLocaleString('en-US')} | حركات: ${progressCounts.moves.toLocaleString('en-US')} | مبيعات: ${progressCounts.sales.toLocaleString('en-US')}`);
-        const [itemsRes, movesRes, salesRes] = await Promise.all([
+        const [itemsRes, movesRes, salesRes, cloudAliases] = await Promise.all([
           selectAllRows("inventory_items", "id", n => { progressCounts.items = n; reportProgress(); }),
           selectAllRows("stock_moves", "id", n => { progressCounts.moves = n; reportProgress(); }),
-          selectAllRows("sales_lines", "id", n => { progressCounts.sales = n; reportProgress(); })
+          selectAllRows("sales_lines", "id", n => { progressCounts.sales = n; reportProgress(); }),
+          loadProductAliasesFromCloud()
         ]);
         const { data: cloudItems, error: itemsErr } = itemsRes;
         const { data: cloudMoves, error: movesErr } = movesRes;
@@ -1836,6 +1880,12 @@
         if (movesErr) console.warn("stock_moves load error:", movesErr.message, movesRes.partial ? `(تم تحميل ${cloudMoves.length} صف قبل الخطأ)` : '');
         if (cloudSales && cloudSales.length > 0) { state.sales = cloudSales.map(normalizeCloudSale); state.isDemoData = false; }
         if (salesErr) console.warn("sales_lines load error:", salesErr.message, salesRes.partial ? `(تم تحميل ${cloudSales.length} صف قبل الخطأ)` : '');
+        // Cloud is the source of truth for link/ignore decisions once connected (see
+        // loadProductAliasesFromCloud) -- this is what makes them follow the data to a
+        // second device instead of staying trapped in the browser that made them. A null
+        // result (table not created yet, or genuinely no decisions saved yet) leaves the
+        // local/localStorage copy untouched rather than wiping it.
+        if (cloudAliases) { state.productAliases = cloudAliases; localStorage.setItem("product_aliases", JSON.stringify(state.productAliases)); }
 
         if ((cloudItems && cloudItems.length) || (cloudMoves && cloudMoves.length) || (cloudSales && cloudSales.length)) {
           if (!state.lastUpdatedAt) markDataUpdated();
