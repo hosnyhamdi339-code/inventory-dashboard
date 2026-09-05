@@ -890,7 +890,12 @@
         qtyInitialCol: findColumn(headerIndex, SYN.qtyInitial),
         qtyFinalCol: findColumn(headerIndex, SYN.qtyFinal),
         auditQtyCol: findColumn(headerIndex, SYN.auditQty),
-        auditDateCol: findColumn(headerIndex, SYN.auditDate)
+        auditDateCol: findColumn(headerIndex, SYN.auditDate),
+        // Optional, manual-only (no synonym auto-detection -- there is no reliable generic
+        // header name for "the field that repeats the same value across every size/color
+        // variant of one model", it's entirely specific to how a given ERP names its export).
+        // See applyGroupAllocation for what these enable.
+        modelGroupCol: null, groupQtyCol: null, groupCostCol: null, groupValueCol: null
       };
     }
     function autoDetectMovesCols(headerIndex) {
@@ -963,10 +968,78 @@
 
           stockValue: numOrNull(row, cols.stockValueCol), qtyInitial: numOrNull(row, cols.qtyInitialCol),
           qtyFinal: numOrNull(row, cols.qtyFinalCol), auditQty: numOrNull(row, cols.auditQtyCol),
-          auditDate: cols.auditDateCol ? formatDateValue(getBy(row, cols.auditDateCol)) || null : null
+          auditDate: cols.auditDateCol ? formatDateValue(getBy(row, cols.auditDateCol)) || null : null,
+          // Raw, unprocessed model-group fields -- extraction stays pure (rows + cols ->
+          // data, no allocation decisions here). applyGroupAllocation() is the separate,
+          // explicit step that turns these into real per-barcode qty/cost/value.
+          modelGroup: cols.modelGroupCol ? (normalizeText(getBy(row, cols.modelGroupCol)) || null) : null,
+          groupQtyRaw: numOrNull(row, cols.groupQtyCol), groupCostRaw: numOrNull(row, cols.groupCostCol),
+          groupValueRaw: numOrNull(row, cols.groupValueCol)
         });
       });
       return result;
+    }
+
+    // Distributes a MODEL-level aggregate quantity/cost/value across its child barcode
+    // variants (size/color) when the source export only records these totals once per
+    // model rather than once per barcode -- exactly the shape an export with one populated
+    // "totals" row per model and blank rows for the rest of its variants produces. This is
+    // the real-world gap between how sales data is granular (barcode = size + color) and
+    // how this valuation export is granular (barcode exists per row, but qty/cost/value do
+    // not) -- without this step, every variant except the one carrying the totals would
+    // show qtyOnHand = 0 and a nonsensical pegged-max turnover rate.
+    //
+    // Allocation driver: each barcode's ACTUAL SALES QUANTITY over the currently loaded
+    // sales data, as a share of the group's total sales -- the most defensible proxy
+    // available for "how much of the model's stock likely belongs to this specific
+    // size/color" when the source system itself doesn't break it out. This is an ESTIMATE,
+    // never a fact: every row it touches is flagged qtyIsAllocatedEstimate so nothing
+    // downstream (table, KPIs, exports) can present an allocated number as if it were
+    // measured. Falls back to an equal split across the group's barcodes only when NONE of
+    // them have any sales history yet to weight by (flagged separately as 'equal_split').
+    //
+    // Deliberately NOT run inside extractValuationRows (which stays a pure rows+cols->data
+    // transform) -- this needs getActiveSales()/aggregateSalesByBarcode, which belong to
+    // the sales side of the app, so it runs as an explicit extra step in handleFileUpload.
+    function applyGroupAllocation(rowsOut) {
+      // Baseline pass: a "group" column mapped with no model-group column (or a group of
+      // size 1 -- a model with only one variant) still needs its raw group value copied
+      // onto the real field, since there is nothing to split it across.
+      rowsOut.forEach(r => {
+        if (r.groupQtyRaw !== null) r.qtyFinal = r.groupQtyRaw;
+        if (r.groupValueRaw !== null) r.stockValue = r.groupValueRaw;
+        if (r.groupCostRaw !== null && r.groupQtyRaw) r.unitCost = Math.round((r.groupCostRaw / r.groupQtyRaw) * 100) / 100;
+      });
+      const groups = {};
+      rowsOut.forEach(r => { if (r.modelGroup) { (groups[r.modelGroup] = groups[r.modelGroup] || []).push(r); } });
+      const salesByBarcode = aggregateSalesByBarcode(getActiveSales());
+      let allocatedGroupCount = 0, equalSplitGroupCount = 0, allocatedRowCount = 0;
+      Object.values(groups).forEach(group => {
+        if (group.length < 2) return; // already handled by the baseline pass above
+        const groupQty = group.reduce((s, r) => s + (r.groupQtyRaw || 0), 0);
+        const groupCost = group.reduce((s, r) => s + (r.groupCostRaw || 0), 0);
+        const groupValue = group.reduce((s, r) => s + (r.groupValueRaw || 0), 0);
+        if (!groupQty && !groupCost && !groupValue) return; // nothing recorded for this group at all
+        const weights = group.map(r => {
+          const bc = normalizeBarcode(r.barcode);
+          const sd = bc ? salesByBarcode[bc] : null;
+          return sd ? Math.max(0, sd.netQty) : 0;
+        });
+        const totalWeight = weights.reduce((a, b) => a + b, 0);
+        const basis = totalWeight > 0 ? 'sales_share' : 'equal_split';
+        if (basis === 'sales_share') allocatedGroupCount++; else equalSplitGroupCount++;
+        group.forEach((r, i) => {
+          const share = totalWeight > 0 ? (weights[i] / totalWeight) : (1 / group.length);
+          const allocQty = groupQty * share, allocCost = groupCost * share, allocValue = groupValue * share;
+          if (groupQty) r.qtyFinal = Math.round(allocQty * 100) / 100;
+          if (groupCost) r.unitCost = allocQty > 0 ? Math.round((allocCost / allocQty) * 100) / 100 : 0;
+          if (groupValue) r.stockValue = Math.round(allocValue * 100) / 100;
+          r.qtyIsAllocatedEstimate = true;
+          r.allocationBasis = basis;
+          allocatedRowCount++;
+        });
+      });
+      return { allocatedGroupCount, equalSplitGroupCount, allocatedRowCount };
     }
 
     const DEFAULT_MOVE_KEYWORDS = {
@@ -1288,9 +1361,18 @@
         { key: 'nameCol', label: 'اسم / كود الصنف', required: true },
         { key: 'codeCol', label: 'كود الصنف (إن وجد، اختياري)' },
         { key: 'categoryCol', label: 'التصنيف / الفئة' },
-        { key: 'unitCostCol', label: 'تكلفة الوحدة', critical: true },
+        { key: 'unitCostCol', label: 'تكلفة الوحدة (لكل باركود منفصل)', critical: true },
         { key: 'salesPriceCol', label: 'سعر البيع', critical: true },
-        { key: 'stockValueCol', label: 'إجمالي قيمة المخزون (اختياري)' }
+        { key: 'stockValueCol', label: 'إجمالي قيمة المخزون لكل باركود (اختياري)' },
+        // "Model group" allocation (see applyGroupAllocation): only relevant when the same
+        // Excel row range represents several size/color barcodes under one parent model,
+        // and the quantity/cost/value are recorded ONCE for the whole model rather than
+        // per barcode. Leave modelGroupCol empty (the default) and none of this activates --
+        // completely inert for the normal one-row-per-item valuation file.
+        { key: 'modelGroupCol', label: '⬇️ فعّل هنا فقط لو الكمية/التكلفة إجمالي على "الموديل" (كل مقاس/لون منفصل بالباركود، بس القيم مسجلة مرة واحدة للموديل كله) ⬇️ — معرّف الموديل المشترك' },
+        { key: 'groupQtyCol', label: '(بديل) إجمالي الكمية على مستوى الموديل كله — سيُوزَّع على كل باركود' },
+        { key: 'groupCostCol', label: '(بديل) إجمالي تكلفة الموديل كله — سيُوزَّع على كل باركود' },
+        { key: 'groupValueCol', label: '(بديل) إجمالي قيمة مخزون الموديل كله — سيُوزَّع على كل باركود' }
       ],
             moves: [
         { key: 'dateCol', label: 'التاريخ' },
@@ -2344,7 +2426,7 @@
           <td class="p-3 font-semibold text-slate-900">${i.displayName}</td>
           <td class="p-3">${i.category}</td>
           <td class="p-3"><span class="badge price-class">${i.priceClass}</span></td>
-          <td class="p-3 num font-bold">${i.qtyOnHand.toLocaleString('en-US')}</td>
+          <td class="p-3 num font-bold">${i.qtyOnHand.toLocaleString('en-US')}${i.qtyIsAllocatedEstimate ? ` <span class="text-amber-600" title="${i.allocationBasis === 'sales_share' ? 'كمية مقدّرة: موزّعة من إجمالي الموديل حسب نسبة مبيعات هذا الباركود — مش رقم فعلي مقاس' : 'كمية مقدّرة: موزّعة بالتساوي على مقاسات/ألوان الموديل (لا توجد مبيعات بعد لتحديد النسبة الحقيقية) — مش رقم فعلي مقاس'}">🧮</span>` : ''}</td>
           <td class="p-3 num">${i.actualSoldQty.toLocaleString('en-US')}</td>
           <td class="p-3 num">${i.unitCost.toLocaleString('en-US')}</td>
           <td class="p-3 num">${i.salesPrice.toLocaleString('en-US')}</td>
@@ -2632,6 +2714,32 @@
     // is based on Excel's own merge metadata -- exact, not a guess -- rather than relying only
     // on the row-order heuristic in fillDownSalesContext (kept as a fallback for exports that
     // leave cells blank without an actual Excel merge behind them).
+    // ROOT CAUSE of "Invalid array length" during upload: SheetJS sizes each row it builds
+    // in sheet_to_json() off the sheet's declared "!ref" dimension (e.g. "A1:N50000"), not
+    // off what cells actually exist. Exports from ERPs/POS systems very commonly ship a
+    // corrupted or stale "!ref" (a leftover from a previous, larger version of the report;
+    // an end cell placed before the start cell; a non-numeric fragment) -- SheetJS then
+    // computes a negative or NaN column/row count and throws exactly this RangeError. This
+    // has nothing to do with the actual data being fine or not; it is a malformed metadata
+    // tag most spreadsheet software never notices because it doesn't trust "!ref" the way
+    // a strict parser does. Fix: ignore the file's claimed dimension and recompute it from
+    // the cells that are genuinely present before handing the sheet to sheet_to_json.
+    function repairSheetRange(worksheet) {
+      let minR = Infinity, minC = Infinity, maxR = -Infinity, maxC = -Infinity;
+      for (const addr in worksheet) {
+        if (addr[0] === '!') continue;
+        let cell;
+        try { cell = XLSX.utils.decode_cell(addr); } catch (e) { continue; }
+        if (!Number.isFinite(cell.r) || !Number.isFinite(cell.c)) continue;
+        if (cell.r < minR) minR = cell.r;
+        if (cell.r > maxR) maxR = cell.r;
+        if (cell.c < minC) minC = cell.c;
+        if (cell.c > maxC) maxC = cell.c;
+      }
+      if (Number.isFinite(minR) && Number.isFinite(maxR) && maxR >= minR && maxC >= minC) {
+        worksheet['!ref'] = XLSX.utils.encode_range({ s: { r: minR, c: minC }, e: { r: maxR, c: maxC } });
+      }
+    }
     function unmergeCells(worksheet) {
       const merges = worksheet['!merges'];
       if (!merges || !merges.length) return;
@@ -2711,13 +2819,31 @@
             // a single running "biggest so far" -- needed so sheets can be scored against
             // the upload type below rather than picked purely by row count.
             const candidateSheets = [];
+            const skippedSheets = [];
             for (const name of workbook.SheetNames) {
-              const ws = workbook.Sheets[name];
-              unmergeCells(ws);
-              const json = XLSX.utils.sheet_to_json(ws, { defval: "", raw: true });
-              if (json.length > 0) candidateSheets.push({ name, rows: json });
+              // A single malformed sheet (see repairSheetRange above) must never abort the
+              // whole upload when the workbook has other, valid sheets -- skip that one
+              // sheet with a visible warning instead of a hard failure on everything.
+              try {
+                const ws = workbook.Sheets[name];
+                repairSheetRange(ws);
+                unmergeCells(ws);
+                const json = XLSX.utils.sheet_to_json(ws, { defval: "", raw: true });
+                if (json.length > 0) candidateSheets.push({ name, rows: json });
+              } catch (sheetErr) {
+                console.warn(`Sheet "${name}" skipped -- failed to parse:`, sheetErr);
+                skippedSheets.push({ name, error: sheetErr.message });
+              }
             }
-            if (!candidateSheets.length) { resolve([]); return; }
+            if (skippedSheets.length) {
+              console.warn(`${skippedSheets.length} sheet(s) skipped due to parsing errors:`, skippedSheets.map(s => s.name).join(', '));
+            }
+            if (!candidateSheets.length) {
+              reject(new Error(skippedSheets.length
+                ? `تعذّرت قراءة كل الشيتات في الملف (فشلت: ${skippedSheets.map(s => s.name).join('، ')}) — الخطأ: ${skippedSheets[0].error}. جرّب تفتح الملف في Excel وتحفظه من جديد (Save As) ثم أعد الرفع.`
+                : `الملف لا يحتوي على أي بيانات.`));
+              return;
+            }
             if (candidateSheets.length === 1 || !uploadType) {
               // Single real sheet, or caller didn't pass a type -- the old "most rows"
               // behavior is harmless (and is now just applied to a list of size 1 in the
@@ -2817,6 +2943,13 @@
       if (row.qtyFinal !== null) it.qtyFinal = row.qtyFinal;
       if (row.auditQty !== null) it.auditQty = row.auditQty;
       if (row.auditDate) it.auditDate = row.auditDate;
+      // See applyGroupAllocation: marks a row whose qty/cost/value were split out of a
+      // model-level total rather than read directly, so the UI never shows an estimate as
+      // a measured fact. Cleared on a re-upload that no longer carries the flag (e.g. the
+      // source system later starts exporting real per-barcode figures) rather than left
+      // stale forever.
+      if (row.qtyIsAllocatedEstimate) { it.qtyIsAllocatedEstimate = true; it.allocationBasis = row.allocationBasis; }
+      else { delete it.qtyIsAllocatedEstimate; delete it.allocationBasis; }
     }
 
     // Wipes the demo/seed items+moves the very first time the user uploads ANY real
@@ -3002,6 +3135,10 @@
           const cols = await showMappingReviewModal(type, headerIndex.headerList, autoCols, rows);
           if (!cols) { alert("تم إلغاء رفع الملف."); return; }
           const parsed = extractValuationRows(rows, cols);
+          let groupAllocationStats = null;
+          if (type === 'valuation' && cols.modelGroupCol) {
+            groupAllocationStats = applyGroupAllocation(parsed.rowsOut);
+          }
           demoWasCleared = evictDemoDataIfNeeded();
           const itemsMap = {};
           const hadExistingItems = state.items.length > 0;
@@ -3055,6 +3192,12 @@
             `✅ تمت معالجة الملف محلياً بنجاح.\nإجمالي الصفوف: ${parsed.stats.total}\nتم استيراد: ${parsed.stats.mapped} صف`;
           if (parsed.stats.usedFallbackLabel > 0) msg += `\nℹ️ ${parsed.stats.usedFallbackLabel} صف كان بدون اسم صريح (خلايا مدموجة في التصدير) وتم استيرادها بكود صنف فريد بدلاً من تجاهلها.`;
           if (parsed.stats.skippedEmpty > 0) msg += `\n⚠️ تم تجاهل ${parsed.stats.skippedEmpty} صف فارغ تماماً (بدون اسم أو كود).`;
+          if (groupAllocationStats && (groupAllocationStats.allocatedGroupCount || groupAllocationStats.equalSplitGroupCount)) {
+            msg += `\n\n🧮 توزيع الكمية/التكلفة على مستوى الباركود: ${groupAllocationStats.allocatedRowCount.toLocaleString('en-US')} باركود (في ${(groupAllocationStats.allocatedGroupCount + groupAllocationStats.equalSplitGroupCount).toLocaleString('en-US')} موديل) حصل على كمية/تكلفة مُقدَّرة بدل رقم فعلي واحد لكل الموديل.`;
+            if (groupAllocationStats.allocatedGroupCount > 0) msg += `\n• ${groupAllocationStats.allocatedGroupCount.toLocaleString('en-US')} موديل: التوزيع كان حسب نسبة كل باركود من المبيعات الفعلية (الأدق المتاح).`;
+            if (groupAllocationStats.equalSplitGroupCount > 0) msg += `\n• ⚠️ ${groupAllocationStats.equalSplitGroupCount.toLocaleString('en-US')} موديل: مفيش أي مبيعات مسجلة لأي باركود تابع له بعد، فتم التوزيع بالتساوي مؤقتاً — هيتصحح تلقائياً لنسبة حقيقية بمجرد ما يترفع ملف مبيعات فيه بيانات لهذه الباركودات.`;
+            msg += `\nكل صف اتوزّع عليه رقم مُقدَّر هيظهر بجانبه علامة 🧮 في جدول المخزون — دي تقديرات وليست أرقام فعلية من النظام المصدر، إلى أن يقدر النظام المصدر يصدّر الكمية الحقيقية لكل باركود منفصل.`;
+          }
           msg += newItemsWarning;
           // CRITICAL: same silent-failure risk as moves -- never claim cloud success unchecked.
           if (itemsSyncResult) {
