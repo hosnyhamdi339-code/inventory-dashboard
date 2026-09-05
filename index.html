@@ -848,7 +848,7 @@
       salesPrice: ["Sales Price", "سعر البيع", "السعر", "Price"],
       stockValue: ["Total Value", "القيمة الإجمالية", "القيمة", "Value"],
       qtyInitial: ["رصيد أول المدة", "رصيد أول", "Opening Balance", "Initial Qty", "Beginning Qty", "Initial"],
-      qtyFinal: ["رصيد آخر المدة", "رصيد آخر", "On Hand", "Final Qty", "Closing Balance", "Final", "Qty On Hand", "Quantity", "Qty", "الكمية"],
+      qtyFinal: ["رصيد آخر المدة", "رصيد آخر", "On Hand", "Final Qty", "Closing Balance", "Final", "Qty On Hand", "Quantity", "Qty", "الكمية", "الكمية المتاحة", "الكمية المتاحة للصنف", "الكمية المتوفرة", "Available Qty", "Available Quantity", "Qty Available"],
       auditQty: ["الجرد الفعلي", "الكمية الفعلية", "Counted Qty", "Audit Qty", "Counted", "Physical Count"],
       auditDate: ["تاريخ الجرد", "Audit Date", "Count Date"],
       date: ["Date", "التاريخ", "تاريخ الحركة"],
@@ -1641,12 +1641,12 @@
     // CREATE TABLE statement yet still gets a fully working app with local-only linking,
     // exactly like before this fix.
     async function loadProductAliasesFromCloud() {
-      if (!supabaseClient) return null;
+      if (!supabaseClient) return { value: null, error: null };
       try {
         const { data, error } = await supabaseClient.from("app_settings").select("value").eq("key", "product_aliases").maybeSingle();
-        if (error) { console.warn("app_settings (product_aliases) load error:", error.message); return null; }
-        return (data && data.value && typeof data.value === "object") ? data.value : null;
-      } catch (err) { console.warn("app_settings (product_aliases) load failed:", err); return null; }
+        if (error) { console.warn("app_settings (product_aliases) load error:", error.message); return { value: null, error }; }
+        return { value: (data && data.value && typeof data.value === "object") ? data.value : null, error: null };
+      } catch (err) { console.warn("app_settings (product_aliases) load failed:", err); return { value: null, error: err }; }
     }
     // Resolves a raw moves-file product name to the normalized key it should be
     // aggregated under, honoring any manual alias. Returns null when the name is
@@ -1829,14 +1829,25 @@
     // a snapshot from the moment of connection. NEVER report "✅ متصل ومزامَن" while a real
     // read/write error exists on either table -- an empty-but-error-free table (0 rows) is a
     // legitimate "not uploaded yet" state and must be reported differently from an actual error.
-        function renderCloudStatus(itemsErr, movesErr, salesErr) {
+        function renderCloudStatus(itemsErr, movesErr, salesErr, aliasesErr) {
       const el = document.getElementById("cloudStatusText");
       if (!supabaseClient) { el.innerText = ""; return; }
-      if (itemsErr || movesErr || salesErr) {
+      if (itemsErr || movesErr || salesErr || aliasesErr) {
         const lines = ["⚠️ الاتصال قائم لكن يوجد خطأ فعلي في القراءة/الكتابة من Supabase:"];
         if (itemsErr) lines.push(`• جدول الأصناف (inventory_items): ${formatSupabaseError(itemsErr)}`);
         if (movesErr) lines.push(`• جدول الحركات (stock_moves): ${formatSupabaseError(movesErr)}`);
         if (salesErr) lines.push(`• جدول المبيعات (sales_lines): ${formatSupabaseError(salesErr)}`);
+        // Table-not-found is EXPECTED before the user runs the one-time CREATE TABLE
+        // statement (see the app_settings note) -- phrased as a to-do, not an alarm, since
+        // the app works fine locally either way. Any other error (RLS, wrong project) is
+        // still shown as a real problem, same as the three data tables above.
+        if (aliasesErr) {
+          const code = aliasesErr.code || '';
+          const looksLikeMissingTable = code === '42P01' || code === 'PGRST205' || /relation .* does not exist|could not find the table/i.test(aliasesErr.message || '');
+          lines.push(looksLikeMissingTable
+            ? `• جدول app_settings (قرارات الربط/التجاهل) لسه مش موجود — القرارات هتفضل محفوظة في هذا المتصفح فقط لحد ما تنشئ الجدول (شوف تعليمات SQL اللي اتبعتلك).`
+            : `• جدول app_settings (قرارات الربط/التجاهل): ${formatSupabaseError(aliasesErr)}`);
+        }
         lines.push("راجع: هل الجداول موجودة بنفس الأسماء؟ وهل سياسات RLS تسمح بالقراءة/الكتابة بالمفتاح anon المستخدم هنا؟");
         el.innerText = lines.join("\n");
         el.style.whiteSpace = "pre-line";
@@ -1855,7 +1866,7 @@
         const progressCounts = { items: 0, moves: 0, sales: 0 };
         const reportProgress = () => setUploadLoading(true,
           `⏳ جاري تحميل البيانات من السحابة — أصناف: ${progressCounts.items.toLocaleString('en-US')} | حركات: ${progressCounts.moves.toLocaleString('en-US')} | مبيعات: ${progressCounts.sales.toLocaleString('en-US')}`);
-        const [itemsRes, movesRes, salesRes, cloudAliases] = await Promise.all([
+        const [itemsRes, movesRes, salesRes, aliasesRes] = await Promise.all([
           selectAllRows("inventory_items", "id", n => { progressCounts.items = n; reportProgress(); }),
           selectAllRows("stock_moves", "id", n => { progressCounts.moves = n; reportProgress(); }),
           selectAllRows("sales_lines", "id", n => { progressCounts.sales = n; reportProgress(); }),
@@ -1864,6 +1875,7 @@
         const { data: cloudItems, error: itemsErr } = itemsRes;
         const { data: cloudMoves, error: movesErr } = movesRes;
         const { data: cloudSales, error: salesErr } = salesRes;
+        const { value: cloudAliases, error: aliasesErr } = aliasesRes;
 
         // CRITICAL FIX: استخدم أي صفوف تم تحميلها فعلاً حتى لو حصل خطأ في صفحة لاحقة
         // (itemsRes.partial / movesRes.partial / salesRes.partial) بدل ما نرمي الجدول
@@ -1891,8 +1903,8 @@
           if (!state.lastUpdatedAt) markDataUpdated();
         }
         recomputeAndRenderAll();
-        renderCloudStatus(itemsErr, movesErr, salesErr);
-        return { ok: !itemsErr && !movesErr && !salesErr, itemsErr, movesErr, salesErr };
+        renderCloudStatus(itemsErr, movesErr, salesErr, aliasesErr);
+        return { ok: !itemsErr && !movesErr && !salesErr, itemsErr, movesErr, salesErr, aliasesErr };
       } catch (err) {
         console.warn("Cloud load failed, using local cache:", err);
         document.getElementById("cloudStatusText").innerText = "⚠️ فشلت المزامنة (خطأ غير متوقع): " + err.message + "\nيتم العمل بالبيانات المحلية فقط.";
@@ -2123,7 +2135,15 @@
         notes.push(`ℹ️ تم حساب معدل دوران المخزون وأيام التغطية من صافي المبيعات المرتبطة بالباركود خلال ${salesPeriodDays.toLocaleString('en-US')} يوم، وليس من حركات التحويل الداخلية.`);
       }
 
-      const processed = state.items.map(item => {
+      // Negative cost or negative on-hand quantity is virtually always a data-entry error
+      // or an unresolved negative adjustment in the source file (never a real economic
+      // state for a physical item) -- and left in, it corrupts every downstream KPI: a
+      // negative cost inflates margin%, a negative qty distorts total stock value and can
+      // even flip turnoverRate's sign. Excluded from analysis entirely rather than clamped
+      // to zero, because silently zeroing would hide the data-quality problem instead of
+      // surfacing it. Counted and reported below -- never a silent drop.
+      let excludedNegativeCount = 0;
+      const processedRaw = state.items.map(item => {
 
         const pName = normalizeText(item.name);
         const moveData = byProduct[normalizeMatchKey(pName)] || { totalIn: 0, totalOut: 0, totalSold: 0, totalPurchased: 0, unknownQty: 0 };
@@ -2166,6 +2186,8 @@
         }
         const floorPrice = parseFloat((salesPrice * (1 - (maxDiscountPct / 100))).toFixed(2));
 
+        if (unitCost < 0 || qtyOnHand < 0) { excludedNegativeCount++; return null; }
+
         return {
           ...item, displayName: pName,
           category: (item.catRaw ? deriveCategoryLabel(item.catRaw, settings.categoryLevelMode) : item.cat) || "عام",
@@ -2177,6 +2199,10 @@
           auditDate: item.auditDate || '-'
         };
       });
+      const processed = processedRaw.filter(Boolean);
+      if (excludedNegativeCount > 0) {
+        notes.push(`⚠️ تم استبعاد ${excludedNegativeCount.toLocaleString('en-US')} صنف من كل التحليل والتقارير لأن تكلفته أو كميته الحالية أقل من صفر (غالباً خطأ إدخال أو تسوية سالبة لم تُحل في ملف المصدر) — راجعها في ملف التقييم/الحركات إن كنت تتوقع قيمة موجبة حقيقية لها.`);
+      }
       return { processed, notes, unmatchedStats, unmatchedSalesBarcodeStats, salesMode, salesPeriodDays };
     }
 
