@@ -1897,7 +1897,22 @@
         // second device instead of staying trapped in the browser that made them. A null
         // result (table not created yet, or genuinely no decisions saved yet) leaves the
         // local/localStorage copy untouched rather than wiping it.
-        if (cloudAliases) { state.productAliases = cloudAliases; localStorage.setItem("product_aliases", JSON.stringify(state.productAliases)); }
+        if (cloudAliases) {
+          state.productAliases = cloudAliases; localStorage.setItem("product_aliases", JSON.stringify(state.productAliases));
+        } else if (!aliasesErr && Object.keys(state.productAliases || {}).length > 0) {
+          // ONE-TIME MIGRATION GAP, now closed: link/ignore decisions made in THIS browser
+          // before cloud sync existed (or before the app_settings table existed) live only
+          // in localStorage and were never pushed up -- creating the table afterward does
+          // NOT retroactively upload them, because nothing re-triggers a save on old
+          // decisions. The query above succeeding with an empty result (no error, no row)
+          // is exactly that state: the table exists, this browser has real local decisions,
+          // and the cloud has never seen them. Seed it once here instead of waiting for the
+          // user to redo a decision just to trigger a save.
+          console.warn(`Seeding app_settings.product_aliases from local cache (${Object.keys(state.productAliases).length} decisions) -- first sync since this feature/table existed.`);
+          saveProductAliasesToCloud().then(result => {
+            if (!result.ok) console.warn("Failed to seed product_aliases to Supabase:", result.error);
+          });
+        }
 
         if ((cloudItems && cloudItems.length) || (cloudMoves && cloudMoves.length) || (cloudSales && cloudSales.length)) {
           if (!state.lastUpdatedAt) markDataUpdated();
